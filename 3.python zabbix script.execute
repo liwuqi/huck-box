@@ -1,0 +1,28 @@
+#!/usr/bin/env python
+ 
+from pyzabbix import ZabbixAPI
+import sys
+import logging
+ 
+stream = logging.StreamHandler(sys.stdout)
+stream.setLevel(logging.DEBUG)
+log = logging.getLogger('pyzabbix')
+log.addHandler(stream)
+log.setLevel(logging.DEBUG)
+zapi = ZabbixAPI("http://10.10.10.108/zabbix")
+zapi.login("zapper", "zapper")
+print ("Connected to %s" % zapi.api_version() )
+ 
+zapi.do_request('script.get',
+                {
+ 
+                'output': 'extend'
+                }
+    )
+ 
+zapi.do_request('script.execute',
+                {
+                'scriptid': '7',
+                'hostid': '10106'
+                                }
+    )
