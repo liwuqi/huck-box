@@ -1,2 +1,3 @@
-# huck-box
-some notes for hacks
+# hack-boxy
+
+Some lets say "Ethical Hacking writeups"
