@@ -1,0 +1,18 @@
+HTB CHALLENGES FLAGS
+
+Easy Pass HTB{fortran!}
+HDC HTB{FuckTheB3stAndPlayWithTheRest!!}
+Impossible Password HTB{40b949f92b86b18}
+Tear or Dear HTB{piph:roiw!@#}
+Widescreen HTB{c3r34l_k1ll3r
+Grammar : HTB{TypejugAlingSOulS}
+forbiden access on site
+1)use burp and switch GET for POST index.php 
+2) in the request i noticed the sesssion key (ses=) and decoded it 
+3)obtained json User:whocares Admin:false MAC:ff6d0a.......
+4)switch admin to true and obtained trolling response so asked for help and someon send me this link:
+https://www.owasp.org/images/6/6b/PHPMagicTricks-TypeJuggling.pdf
+5)after trying and errors i replaces admin to true and mac:0 in the json encoded it replaced the session in my POST /index.php request and obtained the flag
+
+I know mag1k
+HTB{Padd1NG_Or4cl3z_AR3_WaY_T0o_6en3r0ys_ArenT_tHey???}
